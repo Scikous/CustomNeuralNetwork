@@ -51,15 +51,45 @@ class neural_network_operations():
             return self.relu(output)
         return inputs
 
+    def mean_squared_error(self, output_layer, expected_layer):
+        if len(output_layer) == 1:#if only one output in output_layer
+            return (output_layer-expected_layer)**2
+        else:
+            sum = 0.0
+            for output,expected in zip(output_layer, expected_layer):
+                sum += (output-expected)**2
+
+        M_S_E = sum/len(output_layer)
+        return M_S_E
+
+
+    def last_layer_error():
+        return
+
+
+# t = np.array([[1, 0, 1],
+#               [0,1,0],
+#               [1,1,1]])
+
+# t2 = np.array([[0, 0, 0],
+#               [1,1,1],
+#               [0,0,1]])
+
+
+# print(np.sum(t-t2))
+
 #weighted_sum(x, w, b)
 x = np.array([1, 2, 3, 4])
 w = np.array([-1, 0.4, 0.1, -0.8])
+
 b = np.random.randn()* 0.01
 neuron_ops = neural_network_operations()
 weighted_sum = neuron_ops.weighted_sum_output(x, w, b)
 activation = neuron_ops.relu(weighted_sum)
 print(activation)
 
+print("hello",neuron_ops.mean_squared_error(x, w),'\n')
+print("hello2",np.square(x-w).mean())
 x2 = np.array([3,6,7,8,9]) # 1x5
 w2 = np.array([[0.3, 0.2, -0.5, -0.06,1],
               [0.99, 0.44, 0.66, -0.14, 0.52],
