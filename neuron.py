@@ -2,8 +2,15 @@ import numpy as np
 
 class neural_network_operations():
 
-    def relu(self, activation):#the activation function
-        return max(0.0,activation)
+    def relu(self, activatables):#the activation function
+        if isinstance(activatables, (int, float)):#if single neuron to activate
+            return max(0,activatables)
+        else:
+            activations = np.array([])
+            for activatable in activatables:
+                activations = np.append(activations, max(0,activatable))
+            return activations
+
 
     def weighted_sum_output(self, inputs, weights, bias):#single neuron output, sum of inputs*weights -> scalar
         if inputs.ndim == 1:#inputs are of type vector
@@ -38,9 +45,7 @@ class neural_network_operations():
             weights = np.random.uniform(-1, 1, size=(len(inputs), weight_size))
             bias = np.random.randn() * 0.01
             hidden_layer_outputs = self.weighted_sum_layer(inputs, weights, bias)
-
-            for ind, output in enumerate(hidden_layer_outputs):
-                hidden_layer_outputs[ind] = self.relu(output)
+            hidden_layer_outputs = self.relu(hidden_layer_outputs)
             inputs = hidden_layer_outputs
             num_hidden_layers -= 1
         
@@ -73,28 +78,33 @@ class neural_network_operations():
         M_S_E_bp = 2*sum/len(output_layer)
         return M_S_E_bp
     
-    def relu_backpropagation(self, activation):
-        if activation <= 0:
-            return 0
+    def relu_backpropagation(self, activatables) -> 0 | 1:#derivative of relu
+        activations = np.array([])
+        activator = lambda activation: 0 if activation <= 0 else 1
+        if isinstance(activatables, (int, float)):#if single neuron to activate
+            return activator(activatables)
         else:
-            return 1
+            for activatable in activatables:
+                activations = np.append(activations, activator(activatable))
+            return activations
         
     def hadamard_product(self, cost_gradient, activations_backpropagation):
         if len(cost_gradient) == 1:
             return cost_gradient[0]*activations_backpropagation[0]
         else:
-            hadamard = []
+            hadamard_res = np.array([])
             for cost, activation in zip(cost_gradient, activations_backpropagation):
-                hadamard.append(cost*activation)
-        return hadamard
+                hadamard_res = np.append(hadamard_res, cost*activation)
+        return hadamard_res
 
     def output_layer_errors(self, output_layer, expected_layer):
-        errors = []
+        errors = np.array([])
         for output, expected in zip(output_layer, expected_layer):
             node_error = self.mean_squared_error_backpropagation(output, expected)
-            errors.append(node_error)
-        
+            errors = np.append(errors, node_error)
+
         return errors
+
 
 # t = np.array([[1, 0, 1],
 #               [0,1,0],
@@ -114,6 +124,7 @@ w = np.array([-1, 0.4, 0.1, -0.8])
 b = np.random.randn()* 0.01
 neuron_ops = neural_network_operations()
 weighted_sum = neuron_ops.weighted_sum_output(x, w, b)
+print(weighted_sum)
 activation = neuron_ops.relu(weighted_sum)
 print(activation)
 
