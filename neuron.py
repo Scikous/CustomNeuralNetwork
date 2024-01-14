@@ -53,7 +53,7 @@ class neural_network_operations():
 
     def mean_squared_error(self, output_layer, expected_layer):
         if len(output_layer) == 1:#if only one output in output_layer
-            return (output_layer-expected_layer)**2
+            return (output_layer[0]-expected_layer[0])**2
         else:
             sum = 0.0
             for output,expected in zip(output_layer, expected_layer):
@@ -61,11 +61,40 @@ class neural_network_operations():
 
         M_S_E = sum/len(output_layer)
         return M_S_E
+    
+    def mean_squared_error_backpropagation(self, output_layer, expected_layer):
+        if len(output_layer) == 1:#if only one output in output_layer
+            return 2*(output_layer-expected_layer)
+        else:
+            sum = 0.0
+            for output,expected in zip(output_layer, expected_layer):
+                sum += (output-expected)
 
+        M_S_E_bp = 2*sum/len(output_layer)
+        return M_S_E_bp
+    
+    def relu_backpropagation(self, activation):
+        if activation <= 0:
+            return 0
+        else:
+            return 1
+        
+    def hadamard_product(self, cost_gradient, activations_backpropagation):
+        if len(cost_gradient) == 1:
+            return cost_gradient[0]*activations_backpropagation[0]
+        else:
+            hadamard = []
+            for cost, activation in zip(cost_gradient, activations_backpropagation):
+                hadamard.append(cost*activation)
+        return hadamard
 
-    def last_layer_error():
-        return
-
+    def output_layer_errors(self, output_layer, expected_layer):
+        errors = []
+        for output, expected in zip(output_layer, expected_layer):
+            node_error = self.mean_squared_error_backpropagation(output, expected)
+            errors.append(node_error)
+        
+        return errors
 
 # t = np.array([[1, 0, 1],
 #               [0,1,0],
@@ -88,8 +117,6 @@ weighted_sum = neuron_ops.weighted_sum_output(x, w, b)
 activation = neuron_ops.relu(weighted_sum)
 print(activation)
 
-print("hello",neuron_ops.mean_squared_error(x, w),'\n')
-print("hello2",np.square(x-w).mean())
 x2 = np.array([3,6,7,8,9]) # 1x5
 w2 = np.array([[0.3, 0.2, -0.5, -0.06,1],
               [0.99, 0.44, 0.66, -0.14, 0.52],
