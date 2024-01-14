@@ -28,37 +28,40 @@ class neural_network_operations():
     def weighted_sum_layer(self, inputs, weights, bias):#for multiple neurons in layer (could be hidden layer or output layuer)
         outputs = np.array([])
         if weights.ndim == 2:#assuming multiple neurons per layer
-            for weights in weights:#each row consists of the cur layer's weights
-                neuron_output = self.weighted_sum_output(inputs, weights, 0)
+            for weight in weights:#each row consists of the cur layer's weights
+                neuron_output = self.weighted_sum_output(inputs, weight, 0)
                 outputs = np.append(outputs, neuron_output)
         else:
             raise ValueError("Weights must be 2D matrix")
         outputs += bias
         return outputs
 
-    def feed_forward(self, inputs, num_hidden_layers:int, multi_output=False):
+    def feed_forward(self, inputs, num_hidden_layers:int, multi_output=False, weights=None, biases=None):
         weight_size = len(inputs)
         if multi_output:#output layer is also calculated in while loop
             num_hidden_layers += 1
-
+        if weights == None:
+            weights = np.array([np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)])
+            biases = np.random.uniform(np.random.randn() * 0.01, size=(len(inputs)))
+        
+        ind = 0
         while num_hidden_layers > 0:#0 = output layer
-            weights = np.random.uniform(-1, 1, size=(len(inputs), weight_size))
-            bias = np.random.randn() * 0.01
-            hidden_layer_outputs = self.weighted_sum_layer(inputs, weights, bias)
+            hidden_layer_outputs = self.weighted_sum_layer(inputs, weights[ind], biases[ind])
             hidden_layer_outputs = self.relu(hidden_layer_outputs)
             inputs = hidden_layer_outputs
             num_hidden_layers -= 1
+            ind += 1
         
         if not multi_output:
             weights = np.random.uniform(-1, 1, size=len(inputs))
             bias = np.random.randn() * 0.01
             output = self.weighted_sum_output(inputs, weights, bias)
-            return self.relu(output)
-        return inputs
+            return self.relu(output)        
+        return inputs, weights, biases
 
     def mean_squared_error(self, output_layer, expected_layer):
-        if len(output_layer) == 1:#if only one output in output_layer
-            return (output_layer[0]-expected_layer[0])**2
+        if isinstance(output_layer, (int, float)):#if only one output in output_layer
+            return (output_layer-expected_layer)**2
         else:
             sum = 0.0
             for output,expected in zip(output_layer, expected_layer):
@@ -68,7 +71,7 @@ class neural_network_operations():
         return M_S_E
     
     def mean_squared_error_backpropagation(self, output_layer, expected_layer):
-        if len(output_layer) == 1:#if only one output in output_layer
+        if isinstance(output_layer, (int, float)):#if only one output in output_layer
             return 2*(output_layer-expected_layer)
         else:
             sum = 0.0
@@ -89,21 +92,26 @@ class neural_network_operations():
             return activations
         
     def hadamard_product(self, cost_gradient, activations_backpropagation):
-        if len(cost_gradient) == 1:
-            return cost_gradient[0]*activations_backpropagation[0]
+        if isinstance(cost_gradient, (int, float)):#if only one gradient value
+            return cost_gradient*activations_backpropagation
         else:
             hadamard_res = np.array([])
             for cost, activation in zip(cost_gradient, activations_backpropagation):
                 hadamard_res = np.append(hadamard_res, cost*activation)
         return hadamard_res
 
-    def output_layer_errors(self, output_layer, expected_layer):
+    def output_layer_errors(self, output_layer, expected_layer) -> np.array([]):#gets the last layer's errors
         errors = np.array([])
         for output, expected in zip(output_layer, expected_layer):
-            node_error = self.mean_squared_error_backpropagation(output, expected)
-            errors = np.append(errors, node_error)
-
+            neuron_mse_bp = self.mean_squared_error_backpropagation(output, expected) #MSE derivative
+            relu_activation_bp = self.relu_backpropagation(output) #relu derivative
+            errors = np.append(errors, self.hadamard_product(neuron_mse_bp, relu_activation_bp))#element wise product
         return errors
+
+    def backpropagation(self, output_layer, expected_layer, weights, biases):
+        output_layer_errors = self.output_layer_errors(output_layer, expected_layer)
+
+        return output_layer_errors
 
 
 # t = np.array([[1, 0, 1],
@@ -139,4 +147,11 @@ output_layer = neuron_ops.weighted_sum_output(hidden_layer_activations, w, -0.2)
 relu_activated = neuron_ops.relu(output_layer)
 print(hidden_layer_activations, output_layer, relu_activated)
 
-print(neuron_ops.feed_forward(hidden_layer_activations, 3, True))
+E = np.array([1,0,1, 0, 1])
+
+outputL, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 3, True)
+print(outputL)
+print(neuron_ops.backpropagation(outputL,E, weights, biases))
+#outputL_errors = neuron_ops.output_layer_errors(outputL, E)
+#print(outputL_errors)
+
