@@ -111,24 +111,28 @@ class neural_network_operations():
     def layer_errors(self, previous_layer_weights, previous_layer_errors, current_layer_outputs):
         layer_errors = [] 
         weighted_sum_errors = []
-        print(np.transpose(previous_layer_weights), '\n\n', current_layer_outputs,'\n\n',previous_layer_errors)
-
         for weights in np.transpose(previous_layer_weights):
             weighted_sum_error = 0.0 
             for weight, error in zip(weights, previous_layer_errors):
                 weighted_sum_error += weight * error
-                #print(weighted_sum error, weight, error)
             weighted_sum_errors.append(weighted_sum_error)
             weighted_sum_error = 0.0
 
         layer_errors = self.hadamard_product(weighted_sum_errors, self.relu_backpropagation(current_layer_outputs))
-
         return layer_errors
     
     def backpropagation(self, all_outputs, output_layer_activations, expected_layer, all_weights, all_biases):
+        #1st equation, get output layer errors
         output_layer_errors = self.output_layer_errors(all_outputs[-1], output_layer_activations, expected_layer)
-        layer_errors = self.layer_errors(all_weights[-1], output_layer_errors,  all_outputs[-2])
-        print('hello',layer_errors)
+        
+        #2nd and 3rd equation, get individual layer errors (not including output layer) and all cost w.r.t bias values (is equal to layer error) 
+        previous_layer_errors = self.layer_errors(all_weights[-1], output_layer_errors,  all_outputs[-2])#the layer before the output layer   
+        all_cost_wrt_biases = [output_layer_errors, previous_layer_errors]
+        for layer in range(len(all_biases)-2, 0, -1):#not including ouput layer and the one before it
+            layer_errors = self.layer_errors(all_weights[layer+1], previous_layer_errors,  all_outputs[layer])
+            all_cost_wrt_biases.append(layer_errors)
+            previous_layer_errors = layer_errors
+        #print('hello', all_cost_wrt_biases)
         return output_layer_errors
 
 
