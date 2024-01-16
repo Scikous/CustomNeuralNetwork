@@ -36,21 +36,24 @@ class neural_network_operations():
         outputs += bias
         return outputs
 
-    def feed_forward(self, inputs, num_hidden_layers:int, weights=None, biases=None):
+    def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None):
         weight_size = len(inputs)
-        all_outputs = np.array([inputs])
+        all_outputs = [np.array(inputs)]
         if weights == None:
-            weights = np.array([np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)])
-            biases = np.random.uniform(np.random.randn() * 0.01, size=(len(inputs)))
+            weights = [np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)]
+            output_layer_weights = np.random.uniform(-1, 1, size=(output_layer_size, weight_size))
+            weights.append(output_layer_weights)
+            biases = np.random.uniform(np.random.randn() * 0.01, size=(num_hidden_layers+1))
         
         ind = 0
         #pass layer activations through all hidden layers and calculates activations
-        while num_hidden_layers+1 > 0:#0 = output layer, calc even output layer
+        while num_hidden_layers+1 > 0:#0 = output layer
             hidden_layer_outputs = self.weighted_sum_layer(all_outputs[ind], weights[ind], biases[ind])
             hidden_layer_outputs = self.relu(hidden_layer_outputs)
-            all_outputs = np.append(all_outputs, [hidden_layer_outputs], axis=0) #size = 1xnum_hidden_layers
+            all_outputs.append(hidden_layer_outputs) #size = 1xnum_hidden_layers
             num_hidden_layers -= 1
             ind += 1  
+
         return all_outputs, weights, biases
 
     def mean_squared_error(self, output_layer, expected_layer):
@@ -105,7 +108,7 @@ class neural_network_operations():
     def layer_errors(self, previous_layer_errors, previous_layer_weights):
         return
 
-    def backpropagation(self, output_layer, expected_layer, weights, biases):
+    def backpropagation(self, all_outputs, expected_layer, all_weights, all_biases):
         output_layer_errors = self.output_layer_errors(output_layer, expected_layer)
 
         return output_layer_errors
@@ -146,8 +149,8 @@ print(hidden_layer_activations, output_layer, relu_activated)
 
 E = np.array([1,0,1, 0, 1])
 
-outputL, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 3, True)
-print(outputL)
+outputL, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 3, 2)
+#print(outputL)
 #print(neuron_ops.backpropagation(outputL,E, weights, biases))
 #outputL_errors = neuron_ops.output_layer_errors(outputL, E)
 #print(outputL_errors)
