@@ -48,13 +48,15 @@ class neural_network_operations():
         ind = 0
         #pass layer activations through all hidden layers and calculates activations
         while num_hidden_layers+1 > 0:#0 = output layer
-            hidden_layer_outputs = self.weighted_sum_layer(all_outputs[ind], weights[ind], biases[ind])
-            hidden_layer_outputs = self.relu(hidden_layer_outputs)
+            hidden_layer_outputs = self.weighted_sum_layer(inputs, weights[ind], biases[ind])
             all_outputs.append(hidden_layer_outputs) #size = 1xnum_hidden_layers
+            hidden_layer_outputs = self.relu(hidden_layer_outputs)
+            inputs = hidden_layer_outputs
+
             num_hidden_layers -= 1
             ind += 1  
-
-        return all_outputs, weights, biases
+        output_layer_activations = inputs
+        return all_outputs, output_layer_activations, weights, biases
 
     def mean_squared_error(self, output_layer, expected_layer):
         if isinstance(output_layer, (int, float)):#if only one output in output_layer
@@ -97,20 +99,36 @@ class neural_network_operations():
                 hadamard_res = np.append(hadamard_res, cost*activation)
         return hadamard_res
 
-    def output_layer_errors(self, output_layer, expected_layer) -> np.array([]):#gets the last layer's errors
+    def output_layer_errors(self, output_layer_outputs, output_layer_activations, expected_layer) -> np.array([]):#gets the last layer's errors
         errors = np.array([])
-        for output, expected in zip(output_layer, expected_layer):
-            neuron_mse_bp = self.mean_squared_error_backpropagation(output, expected) #MSE derivative
+        for output, activation, expected in zip(output_layer_outputs, output_layer_activations, expected_layer):
+            neuron_mse_bp = self.mean_squared_error_backpropagation(activation, expected) #MSE derivative
             relu_activation_bp = self.relu_backpropagation(output) #relu derivative
             errors = np.append(errors, self.hadamard_product(neuron_mse_bp, relu_activation_bp))#element wise product
         return errors
     
-    def layer_errors(self, previous_layer_errors, previous_layer_weights):
-        return
+    def layer_errors(self, previous_layer_weights, previous_layer_errors, current_layer_outputs):
+        layer_errors = [] 
 
-    def backpropagation(self, all_outputs, expected_layer, all_weights, all_biases):
-        output_layer_errors = self.output_layer_errors(output_layer, expected_layer)
+        for weights, output in zip(previous_layer_weights, current_layer_outputs):
+            weighted_sum_error = 0.0 
+            neuron_errors = []
+            for error in previous_layer_errors:
+                for weight in weights:
+                    weighted_sum_error += weight * error
 
+                #weighted_sum_errors.append(weighted_sum_error)
+                neuron_error = self.hadamard_product(weighted_sum_error, self.relu_backpropagation(output))
+                neuron_errors.append(neuron_error)
+                weighted_sum_error = 0.0
+            layer_errors.append(neuron_errors)
+ 
+        return layer_errors
+    
+    def backpropagation(self, all_outputs, output_layer_activations, expected_layer, all_weights, all_biases):
+        output_layer_errors = self.output_layer_errors(all_outputs[-1], output_layer_activations, expected_layer)
+        layer_errors = self.layer_errors(all_weights[-2], output_layer_errors,  all_outputs[-2])
+        print(layer_errors)
         return output_layer_errors
 
 
@@ -132,9 +150,9 @@ w = np.array([-1, 0.4, 0.1, -0.8])
 b = np.random.randn()* 0.01
 neuron_ops = neural_network_operations()
 weighted_sum = neuron_ops.weighted_sum_output(x, w, b)
-print(weighted_sum)
+#print(weighted_sum)
 activation = neuron_ops.relu(weighted_sum)
-print(activation)
+#print(activation)
 
 x2 = np.array([3,6,7,8,9]) # 1x5
 w2 = np.array([[0.3, 0.2, -0.5, -0.06,1],
@@ -145,13 +163,13 @@ w2 = np.array([[0.3, 0.2, -0.5, -0.06,1],
 hidden_layer_activations = neuron_ops.weighted_sum_layer(x2,w2,b)
 output_layer = neuron_ops.weighted_sum_output(hidden_layer_activations, w, -0.2)
 relu_activated = neuron_ops.relu(output_layer)
-print(hidden_layer_activations, output_layer, relu_activated)
+#print(hidden_layer_activations, output_layer, relu_activated)
 
 E = np.array([1,0,1, 0, 1])
 
-outputL, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 3, 2)
+all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 3, 2)
 #print(outputL)
 #print(neuron_ops.backpropagation(outputL,E, weights, biases))
-#outputL_errors = neuron_ops.output_layer_errors(outputL, E)
+outputL_errors = neuron_ops.backpropagation(all_outputs, output_layer_activations, E, weights, biases)
 #print(outputL_errors)
 
