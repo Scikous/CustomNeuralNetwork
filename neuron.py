@@ -88,6 +88,7 @@ class neural_network_operations():
         else:
             for activatable in activatables:
                 activations = np.append(activations, activator(activatable))
+        
             return activations
         
     def hadamard_product(self, cost_gradient, activations_backpropagation):
@@ -109,26 +110,25 @@ class neural_network_operations():
     
     def layer_errors(self, previous_layer_weights, previous_layer_errors, current_layer_outputs):
         layer_errors = [] 
+        weighted_sum_errors = []
+        print(np.transpose(previous_layer_weights), '\n\n', current_layer_outputs,'\n\n',previous_layer_errors)
 
-        for weights, output in zip(previous_layer_weights, current_layer_outputs):
+        for weights in np.transpose(previous_layer_weights):
             weighted_sum_error = 0.0 
-            neuron_errors = []
-            for error in previous_layer_errors:
-                for weight in weights:
-                    weighted_sum_error += weight * error
+            for weight, error in zip(weights, previous_layer_errors):
+                weighted_sum_error += weight * error
+                #print(weighted_sum error, weight, error)
+            weighted_sum_errors.append(weighted_sum_error)
+            weighted_sum_error = 0.0
 
-                #weighted_sum_errors.append(weighted_sum_error)
-                neuron_error = self.hadamard_product(weighted_sum_error, self.relu_backpropagation(output))
-                neuron_errors.append(neuron_error)
-                weighted_sum_error = 0.0
-            layer_errors.append(neuron_errors)
- 
+        layer_errors = self.hadamard_product(weighted_sum_errors, self.relu_backpropagation(current_layer_outputs))
+
         return layer_errors
     
     def backpropagation(self, all_outputs, output_layer_activations, expected_layer, all_weights, all_biases):
         output_layer_errors = self.output_layer_errors(all_outputs[-1], output_layer_activations, expected_layer)
-        layer_errors = self.layer_errors(all_weights[-2], output_layer_errors,  all_outputs[-2])
-        print(layer_errors)
+        layer_errors = self.layer_errors(all_weights[-1], output_layer_errors,  all_outputs[-2])
+        print('hello',layer_errors)
         return output_layer_errors
 
 
