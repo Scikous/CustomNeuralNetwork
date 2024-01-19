@@ -25,7 +25,7 @@ class neural_network_operations():
             raise ValueError("inputs must be of type vector")
         return output
 
-    def weighted_sum_layer(self, inputs, weights, bias):#for multiple neurons in layer (could be hidden layer or output layuer)
+    def weighted_sum_layer(self, inputs, weights, biases):#for multiple neurons in layer (could be hidden layer or output layuer)
         outputs = np.array([])
         if weights.ndim == 2:#assuming multiple neurons per layer
             for weight in weights:#each row consists of the cur layer's weights
@@ -33,14 +33,14 @@ class neural_network_operations():
                 outputs = np.append(outputs, neuron_output)
         else:
             raise ValueError("Weights must be 2D matrix")
-        outputs += bias
+        outputs += biases
         return outputs
 
     def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None):
         weight_size = len(inputs)
         all_outputs = [np.array(inputs)]
         if weights == None:
-            weights = [np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)]
+            weights = [np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)] #account for input_layer
             output_layer_weights = np.random.uniform(-1, 1, size=(output_layer_size, weight_size))
             weights.append(output_layer_weights)
             biases = np.random.uniform(np.random.randn() * 0.01, size=(num_hidden_layers+1))
@@ -121,16 +121,34 @@ class neural_network_operations():
         layer_errors = self.hadamard_product(weighted_sum_errors, self.relu_backpropagation(current_layer_outputs))
         return layer_errors
     
+    def gradient_descent(self, input_weights, input_biases, gradient_weights,  gradient_biases, learning_rate):
+        for i in range(len(gradient_weights)):            
+            for j  in range(len(gradient_weights[i])):
+                #print(gradient_weights[i][j])
+                for k in range(len(gradient_weights[i][j])):
+                    #print(gradient_weights[i][j][k])
+                    gradient_weights[i][j][k] = gradient_weights[i][j][k]* learning_rate
+                    input_weights[i][j][k] -= gradient_weights[i][j][k]
+
+        for i in range(len(gradient_biases)):            
+            for j  in range(len(gradient_biases[i])):
+                gradient_biases[i][j] = input_biases[i] - learning_rate*gradient_biases[i][j]
+        input_biases = gradient_biases
+        return input_weights, input_biases
+
+
     def backpropagation(self, all_outputs, output_layer_activations, expected_layer, all_weights, all_biases):
         num_layers = len(all_weights) #num of weight vectors = num of layers
-        print(num_layers)
+        #print(all_weights)
         #1st equation, get output layer errors
         output_layer_errors = self.output_layer_errors(all_outputs[-1], output_layer_activations, expected_layer)
         
         #2nd and 3rd equation, get individual layer errors (not including output layer) and all cost w.r.t bias values (is equal to layer error) 
         previous_layer_errors = self.layer_errors(all_weights[-1], output_layer_errors,  all_outputs[-2])#the layer before the output layer   
         all_cost_wrt_biases = [output_layer_errors, previous_layer_errors]
-        for layer in range(num_layers-2, 0, -1):#not including ouput layer and the one before it
+        for layer in range(num_layers-2, 0, -1):#not including ouput layer and the one before it, and the input layer
+            print(layer)
+            #if layer ==  
             layer_errors = self.layer_errors(all_weights[layer+1], previous_layer_errors,  all_outputs[layer])
             all_cost_wrt_biases.append(layer_errors)
             previous_layer_errors = layer_errors
@@ -148,8 +166,7 @@ class neural_network_operations():
                     cost_wrt_weights_in_neuron.append(error*output)
                 cost_wrt_weights_in_neurons.append(cost_wrt_weights_in_neuron)
             all_cost_wrt_weights.append(cost_wrt_weights_in_neurons)
-
-        return output_layer_errors
+        return all_cost_wrt_weights[::-1], all_cost_wrt_biases[::-1]
 
 
 # t = np.array([[1, 0, 1],
@@ -187,10 +204,15 @@ relu_activated = neuron_ops.relu(output_layer)
 
 E = np.array([1,0,1])
 hidden_layer_activations = np.array([3, 6, 8])
-print(hidden_layer_activations)
+#print(hidden_layer_activations)
 all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2)
 #print(outputL)
 #print(neuron_ops.backpropagation(outputL,E, weights, biases))
-outputL_errors = neuron_ops.backpropagation(all_outputs, output_layer_activations, E, weights, biases)
-#print(outputL_errors)
+gradient_weights, gradient_biases = neuron_ops.backpropagation(all_outputs, output_layer_activations, E, weights, biases)
 
+input_weights, input_biases = neuron_ops.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
+
+
+all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2, input_weights, input_biases)
+
+#print(input_weights,'\n\n', input_biases)
