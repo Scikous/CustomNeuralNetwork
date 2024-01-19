@@ -36,6 +36,18 @@ class neural_network_operations():
         outputs += biases
         return outputs
 
+    def softmax(self, output_layer_activations):
+        softmax = np.array([])
+        for activation in output_layer_activations:
+            probability =  0.0#
+            sum_activation_probs = 0.0            
+            for activationn in output_layer_activations:
+                sum_activation_probs += np.exp(activationn)
+            probability = np.exp(activation)/sum_activation_probs
+            softmax = np.append(softmax, probability)
+        print(softmax, output_layer_activations)
+        return softmax
+    
     def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None):
         weight_size = len(inputs)
         all_outputs = [np.array(inputs)]
@@ -47,7 +59,7 @@ class neural_network_operations():
         
         ind = 0
         #pass layer activations through all hidden layers and calculates activations
-        while num_hidden_layers+1 > 0:#0 = output layer
+        while num_hidden_layers > 0:#0 = output layer
             hidden_layer_outputs = self.weighted_sum_layer(inputs, weights[ind], biases[ind])
             all_outputs.append(hidden_layer_outputs) #size = 1xnum_hidden_layers
             hidden_layer_outputs = self.relu(hidden_layer_outputs)
@@ -55,7 +67,10 @@ class neural_network_operations():
 
             num_hidden_layers -= 1
             ind += 1  
-        output_layer_activations = inputs
+        
+        output_layer_outputs = self.weighted_sum_layer(inputs, weights[ind], biases[ind])
+        all_outputs.append(output_layer_outputs)
+        output_layer_activations = self.softmax(output_layer_outputs)
         return all_outputs, output_layer_activations, weights, biases
 
     def mean_squared_error(self, output_layer, expected_layer):
@@ -90,6 +105,14 @@ class neural_network_operations():
                 activations = np.append(activations, activator(activatable))
         
             return activations
+
+    def softmax_backpropagation(self, activatables):
+        #activations = np.array([])
+        #activator = lambda activation: self.softmax(activation)*(1-self.softmax(activation))
+        # if isinstance(activatables, (int, float)):#if single neuron to activate
+        #     return activator(activatables)
+        #activations = np.append(activations, activator(activatables))
+        return self.softmax(activatables)*(1-self.softmax(activatables))
         
     def hadamard_product(self, cost_gradient, activations_backpropagation):
         if isinstance(cost_gradient, (int, float)):#if only one gradient value
@@ -102,10 +125,12 @@ class neural_network_operations():
 
     def output_layer_errors(self, output_layer_outputs, output_layer_activations, expected_layer) -> np.array([]):#gets the last layer's errors
         errors = np.array([])
-        for output, activation, expected in zip(output_layer_outputs, output_layer_activations, expected_layer):
-            neuron_mse_bp = self.mean_squared_error_backpropagation(activation, expected) #MSE derivative
-            relu_activation_bp = self.relu_backpropagation(output) #relu derivative
-            errors = np.append(errors, self.hadamard_product(neuron_mse_bp, relu_activation_bp))#element wise product
+        neuron_mse_bps = np.array([])
+        print(output_layer_outputs, output_layer_activations)
+        for activation, expected in zip(output_layer_activations, expected_layer):
+            neuron_mse_bps = np.append(neuron_mse_bps, self.mean_squared_error_backpropagation(activation, expected)) #MSE derivative
+        softmax_activation_bps = self.softmax_backpropagation(output_layer_outputs) #relu derivative
+        errors = np.append(errors, self.hadamard_product(neuron_mse_bps, softmax_activation_bps))#element wise product
         return errors
     
     def layer_errors(self, previous_layer_weights, previous_layer_errors, current_layer_outputs):
@@ -202,17 +227,20 @@ output_layer = neuron_ops.weighted_sum_output(hidden_layer_activations, w, -0.2)
 relu_activated = neuron_ops.relu(output_layer)
 #print(hidden_layer_activations, output_layer, relu_activated)
 
-E = np.array([1,0,1])
+E = np.array([1,0])
 hidden_layer_activations = np.array([3, 6, 8])
 #print(hidden_layer_activations)
 all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2)
 #print(outputL)
 #print(neuron_ops.backpropagation(outputL,E, weights, biases))
+loss = neuron_ops.mean_squared_error(output_layer_activations, E)
+print(loss)
 gradient_weights, gradient_biases = neuron_ops.backpropagation(all_outputs, output_layer_activations, E, weights, biases)
 
 input_weights, input_biases = neuron_ops.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
 
 
 all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2, input_weights, input_biases)
-
+loss = neuron_ops.mean_squared_error(output_layer_activations, E)
+print(loss)
 #print(input_weights,'\n\n', input_biases)
