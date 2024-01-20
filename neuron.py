@@ -42,10 +42,16 @@ class neural_network_operations():
             probability =  0.0#
             sum_activation_probs = 0.0            
             for activationn in output_layer_activations:
-                sum_activation_probs += np.exp(activationn)
-            probability = np.exp(activation)/sum_activation_probs
+                sum_activation_probs += np.exp(activationn-np.max(output_layer_activations))
+            probability = np.exp(activation-np.max(output_layer_activations))/sum_activation_probs
             softmax = np.append(softmax, probability)
-        print(softmax, output_layer_activations)
+
+        max_logit = np.max(output_layer_activations)
+        exp_logits = np.exp(output_layer_activations - max_logit)
+        softmax_values = exp_logits / np.sum(exp_logits)
+        SM = softmax.reshape((-1,1))
+        jac = np.diagflat(softmax) - np.dot(SM, SM.T)
+        print('\n\n------',softmax_values, softmax, jac)
         return softmax
     
     def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None):
@@ -95,6 +101,23 @@ class neural_network_operations():
         M_S_E_bp = 2*sum/len(output_layer)
         return M_S_E_bp
     
+    def cross_entropy_loss(self, output_layer, expected_layer):
+        probabilities = output_layer
+
+
+
+        print('\n\n--',probabilities)
+    
+        loss = -(expected_layer*np.log(probabilities) +(1-expected_layer)*np.log(1-probabilities))
+        return loss
+    
+    def cross_entropy_loss_backpropagation(self, output_layer, expected_layer):
+        probabilities = output_layer
+
+        loss = -(expected_layer/probabilities - (1-expected_layer)/(1-probabilities))
+        print(loss)
+        return loss
+    
     def relu_backpropagation(self, activatables) -> 0 | 1:#derivative of relu
         activations = np.array([])
         activator = lambda activation: 0 if activation <= 0 else 1
@@ -107,11 +130,6 @@ class neural_network_operations():
             return activations
 
     def softmax_backpropagation(self, activatables):
-        #activations = np.array([])
-        #activator = lambda activation: self.softmax(activation)*(1-self.softmax(activation))
-        # if isinstance(activatables, (int, float)):#if single neuron to activate
-        #     return activator(activatables)
-        #activations = np.append(activations, activator(activatables))
         return self.softmax(activatables)*(1-self.softmax(activatables))
         
     def hadamard_product(self, cost_gradient, activations_backpropagation):
@@ -126,11 +144,14 @@ class neural_network_operations():
     def output_layer_errors(self, output_layer_outputs, output_layer_activations, expected_layer) -> np.array([]):#gets the last layer's errors
         errors = np.array([])
         neuron_mse_bps = np.array([])
-        print(output_layer_outputs, output_layer_activations)
+        #print(output_layer_outputs, output_layer_activations)
         for activation, expected in zip(output_layer_activations, expected_layer):
             neuron_mse_bps = np.append(neuron_mse_bps, self.mean_squared_error_backpropagation(activation, expected)) #MSE derivative
         softmax_activation_bps = self.softmax_backpropagation(output_layer_outputs) #relu derivative
+        print(softmax_activation_bps)
         errors = np.append(errors, self.hadamard_product(neuron_mse_bps, softmax_activation_bps))#element wise product
+        print('test',errors)
+
         return errors
     
     def layer_errors(self, previous_layer_weights, previous_layer_errors, current_layer_outputs):
@@ -227,10 +248,10 @@ output_layer = neuron_ops.weighted_sum_output(hidden_layer_activations, w, -0.2)
 relu_activated = neuron_ops.relu(output_layer)
 #print(hidden_layer_activations, output_layer, relu_activated)
 
-E = np.array([1,0])
+E = np.array([1,0,1])
 hidden_layer_activations = np.array([3, 6, 8])
 #print(hidden_layer_activations)
-all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2)
+all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 3)
 #print(outputL)
 #print(neuron_ops.backpropagation(outputL,E, weights, biases))
 loss = neuron_ops.mean_squared_error(output_layer_activations, E)
@@ -241,6 +262,8 @@ input_weights, input_biases = neuron_ops.gradient_descent(weights, biases, gradi
 
 
 all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2, input_weights, input_biases)
-loss = neuron_ops.mean_squared_error(output_layer_activations, E)
-print(loss)
+loss = neuron_ops.cross_entropy_loss(output_layer_activations, E)#neuron_ops.mean_squared_error(output_layer_activations, E)
+loss2 = neuron_ops.cross_entropy_loss_backpropagation(output_layer_activations, E)#neuron_ops.mean_squared_error(output_layer_activations, E)
+
+print('\n\nhello', loss, loss2)
 #print(input_weights,'\n\n', input_biases)
