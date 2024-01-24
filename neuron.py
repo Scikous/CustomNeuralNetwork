@@ -1,4 +1,9 @@
 import numpy as np
+from PIL import Image, ImageOps
+import glob
+from numba import jit, cuda
+from numba.experimental import jitclass
+from timeit import default_timer as timer  
 
 class neural_network_operations():
 
@@ -51,8 +56,18 @@ class neural_network_operations():
         softmax_values = exp_logits / np.sum(exp_logits)
         SM = softmax.reshape((-1,1))
         jac = np.diagflat(softmax) - np.dot(SM, SM.T)
-        print('\n\n------',softmax_values, softmax, jac)
-        return softmax
+        #print('\n\n------',softmax_values, softmax, jac)
+        return softmax_values
+    
+    def sigmoid(self, output_layer_activations):
+        sigmoid = np.array([])
+        print(np.exp(-output_layer_activations[0]))
+        for activation in output_layer_activations:
+            probability =  0.0#
+            #sum_activation_probs = 0.0            
+            probability = np.exp(-activation)/(1+np.exp(-activation))**2
+            sigmoid = np.append(sigmoid, probability)
+        return sigmoid
     
     def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None):
         weight_size = len(inputs)
@@ -62,7 +77,6 @@ class neural_network_operations():
             output_layer_weights = np.random.uniform(-1, 1, size=(output_layer_size, weight_size))
             weights.append(output_layer_weights)
             biases = np.random.uniform(np.random.randn() * 0.01, size=(num_hidden_layers+1))
-        
         ind = 0
         #pass layer activations through all hidden layers and calculates activations
         while num_hidden_layers > 0:#0 = output layer
@@ -75,6 +89,7 @@ class neural_network_operations():
             ind += 1  
         
         output_layer_outputs = self.weighted_sum_layer(inputs, weights[ind], biases[ind])
+        print(output_layer_outputs)
         all_outputs.append(output_layer_outputs)
         output_layer_activations = self.softmax(output_layer_outputs)
         return all_outputs, output_layer_activations, weights, biases
@@ -103,19 +118,23 @@ class neural_network_operations():
     
     def cross_entropy_loss(self, output_layer, expected_layer):
         probabilities = output_layer
-
-
-
-        print('\n\n--',probabilities)
-    
-        loss = -(expected_layer*np.log(probabilities) +(1-expected_layer)*np.log(1-probabilities))
+        epsilon = 1e-10
+        if isinstance(expected_layer, (int, float)):
+            loss = -(expected_layer*np.log(probabilities[0]+epsilon) +(1-expected_layer)*np.log(1-probabilities[0]+epsilon))
+        else:
+            loss = -(expected_layer*np.log(probabilities+epsilon) +(1-expected_layer)*np.log(1-probabilities+epsilon))
         return loss
     
     def cross_entropy_loss_backpropagation(self, output_layer, expected_layer):
         probabilities = output_layer
+        epsilon = 1e-10
+        #print(probabilities[0], expected_layer)
 
-        loss = -(expected_layer/probabilities - (1-expected_layer)/(1-probabilities))
-        print(loss)
+        if isinstance(expected_layer, (int, float)):
+            loss = -(expected_layer/ (probabilities[0]+epsilon) - (1.0-expected_layer)/(1.0-probabilities[0]+epsilon))
+        else:
+            #print('bruh')
+            loss = -(expected_layer/(probabilities+epsilon) - (1.0-expected_layer)/(1.0-probabilities+epsilon))
         return loss
     
     def relu_backpropagation(self, activatables) -> 0 | 1:#derivative of relu
@@ -126,12 +145,13 @@ class neural_network_operations():
         else:
             for activatable in activatables:
                 activations = np.append(activations, activator(activatable))
-        
             return activations
 
     def softmax_backpropagation(self, activatables):
         return self.softmax(activatables)*(1-self.softmax(activatables))
         
+    def sigmoid_backpropagation(self, activatables):
+        return self.sigmoid(activatables)*(1-self.sigmoid(activatables))
     def hadamard_product(self, cost_gradient, activations_backpropagation):
         if isinstance(cost_gradient, (int, float)):#if only one gradient value
             return cost_gradient*activations_backpropagation
@@ -143,14 +163,15 @@ class neural_network_operations():
 
     def output_layer_errors(self, output_layer_outputs, output_layer_activations, expected_layer) -> np.array([]):#gets the last layer's errors
         errors = np.array([])
-        neuron_mse_bps = np.array([])
+        #neuron_mse_bps = np.array([])
         #print(output_layer_outputs, output_layer_activations)
-        for activation, expected in zip(output_layer_activations, expected_layer):
-            neuron_mse_bps = np.append(neuron_mse_bps, self.mean_squared_error_backpropagation(activation, expected)) #MSE derivative
+        # for activation, expected in zip(output_layer_activations, expected_layer):
+        #     neuron_mse_bps = np.append(neuron_mse_bps, self.mean_squared_error_backpropagation(activation, expected)) #MSE derivative
+        costs_output_layer = self.cross_entropy_loss_backpropagation(output_layer_activations, expected_layer)
         softmax_activation_bps = self.softmax_backpropagation(output_layer_outputs) #relu derivative
-        print(softmax_activation_bps)
-        errors = np.append(errors, self.hadamard_product(neuron_mse_bps, softmax_activation_bps))#element wise product
-        print('test',errors)
+        #print(softmax_activation_bps)
+        errors = np.append(errors, self.hadamard_product(costs_output_layer, softmax_activation_bps))#element wise product
+        #print('test',errors)
 
         return errors
     
@@ -193,7 +214,7 @@ class neural_network_operations():
         previous_layer_errors = self.layer_errors(all_weights[-1], output_layer_errors,  all_outputs[-2])#the layer before the output layer   
         all_cost_wrt_biases = [output_layer_errors, previous_layer_errors]
         for layer in range(num_layers-2, 0, -1):#not including ouput layer and the one before it, and the input layer
-            print(layer)
+            #print(layer)
             #if layer ==  
             layer_errors = self.layer_errors(all_weights[layer+1], previous_layer_errors,  all_outputs[layer])
             all_cost_wrt_biases.append(layer_errors)
@@ -213,57 +234,134 @@ class neural_network_operations():
                 cost_wrt_weights_in_neurons.append(cost_wrt_weights_in_neuron)
             all_cost_wrt_weights.append(cost_wrt_weights_in_neurons)
         return all_cost_wrt_weights[::-1], all_cost_wrt_biases[::-1]
+    
+    def batch_averages(self, batch_weights, batch_biases):
+        mean_weights = [np.zeros_like(batch_weights[0][0]) for _ in range(len(batch_weights[0]))]
+        mean_biases = [np.zeros_like(batch_biases[0][0]) for _ in range(len(batch_biases[0]))]
+        #print(len(batch_biases), len(batch_biases[0]), len(batch_biases[0][0]))
+        for weights_set, biases_set in zip(batch_weights, batch_biases):#each batch element's set of weights and biases
+            for ind, (weights, biases) in enumerate(zip(weights_set, biases_set)):#for each layer sum weights with previous set of weights
+                mean_weights[ind] += weights
+                mean_biases[ind] += biases
+        #print(sum_weights[0])
+        for ind in range(len(mean_biases)):
+            #print(ind, len(mean_biases))
+            mean_weights[ind] /= len(batch_weights)
+            mean_biases[ind] /= len(batch_biases)
 
 
-# t = np.array([[1, 0, 1],
-#               [0,1,0],
-#               [1,1,1]])
+        #print(sum_weights, len(batch_weights))
+        print(mean_weights, mean_biases, len(mean_weights), len(mean_biases))
+        return mean_weights, mean_biases
+    
+    def model_trainer(self, batch_size, epochs=0):
+        testing_path = 'test'
+        train_path = 'train'
+        breaker = False        
+        batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)
+        batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=True)
+        batch_weights = []
+        batch_biases = []
+        train_ground_truths[0] = 0.0
+        train_ground_truths[2] = 0.0
 
-# t2 = np.array([[0, 0, 0],
-#               [1,1,1],
-#               [0,0,1]])
+        #print(batch_train_imgs)
+
+        while train_cnt > 0 and not breaker:#while there images still to be trained on, keep going
+            for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
+                all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, 2, 3)
+                print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
+                print(output_layer_activations, train_ground_truth)
+                #print(train_img)
+                #print(outputL)
+                #print(neuron_ops.backpropagation(outputL,E, weights, biases))
+                #loss = self.mean_squared_error(output_layer_activations,  test_img)
+                #print(loss)
+                gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights, biases)
+
+                input_weights, input_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
+                batch_weights.append(input_weights)
+                batch_biases.append(input_biases)
+                #print('\n\nhello', loss)
+            self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
+            break
+            batch_size_start_from *= 2
+            batch_train_imgs,train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_start_from=batch_size_start_from/2)
+            if test_cnt <= 0:
+                batch_test_imgs,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
+            else:
+                batch_test_imgs,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size/2)
+            if batch_size_start_from > 4:
+                breaker = True
 
 
-# print(np.sum(t-t2))
-
-#weighted_sum(x, w, b)
-x = np.array([1, 2, 3, 4])
-w = np.array([-1, 0.4, 0.1, -0.8])
-
-b = np.random.randn()* 0.01
-neuron_ops = neural_network_operations()
-weighted_sum = neuron_ops.weighted_sum_output(x, w, b)
-#print(weighted_sum)
-activation = neuron_ops.relu(weighted_sum)
-#print(activation)
-
-x2 = np.array([3,6,7,8,9]) # 1x5
-w2 = np.array([[0.3, 0.2, -0.5, -0.06,1],
-              [0.99, 0.44, 0.66, -0.14, 0.52],
-              [0.456, 0.113, 0.689, -0.957, 0.185],
-              [0.68,-0.31,0.02,0.01,-0.24],
-              [0.003,-0.008,-0.009,-0.003, 0.005]]) #5x5
-hidden_layer_activations = neuron_ops.weighted_sum_layer(x2,w2,b)
-output_layer = neuron_ops.weighted_sum_output(hidden_layer_activations, w, -0.2)
-relu_activated = neuron_ops.relu(output_layer)
-#print(hidden_layer_activations, output_layer, relu_activated)
-
-E = np.array([1,0,1])
-hidden_layer_activations = np.array([3, 6, 8])
-#print(hidden_layer_activations)
-all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 3)
-#print(outputL)
-#print(neuron_ops.backpropagation(outputL,E, weights, biases))
-loss = neuron_ops.mean_squared_error(output_layer_activations, E)
-print(loss)
-gradient_weights, gradient_biases = neuron_ops.backpropagation(all_outputs, output_layer_activations, E, weights, biases)
-
-input_weights, input_biases = neuron_ops.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
 
 
-all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2, input_weights, input_biases)
-loss = neuron_ops.cross_entropy_loss(output_layer_activations, E)#neuron_ops.mean_squared_error(output_layer_activations, E)
-loss2 = neuron_ops.cross_entropy_loss_backpropagation(output_layer_activations, E)#neuron_ops.mean_squared_error(output_layer_activations, E)
 
-print('\n\nhello', loss, loss2)
-#print(input_weights,'\n\n', input_biases)
+    
+def images_loader(path, batch_size, grayscale=False, batch_start_from=0):#loads a batch of images to be used
+    images_paths=glob.glob(path+'/*.jpg') + glob.glob(path+'/*.png')
+    ground_truths = np.ones(batch_size)
+    #print(ground_truths)
+    #print(images_paths[batch_start_from:batch_size+batch_start_from])
+    if grayscale:
+        images_arr = np.array([ImageOps.grayscale(Image.open(img_path)) for img_path in images_paths[batch_start_from:batch_size+batch_start_from]])
+    else:
+        images_arr = np.array([Image.open(img_path) for img_path in images_paths[batch_start_from:batch_size+batch_start_from]])
+    images_arr = np.array([img.reshape(-1)/255 for img in images_arr])
+    #print(images_arr)
+    return images_arr, ground_truths,len(images_paths)-batch_size
+
+if __name__=="__main__":
+    neuron_ops = neural_network_operations()
+
+    testing_path = 'test'
+    train_path = 'train'
+    batch_size = 5
+    neuron_ops.model_trainer(batch_size, 0)
+
+
+    epoch = 0
+
+        #print(input_weights,'\n\n', input_biases)
+
+
+    # x = np.array([1, 2, 3, 4])
+    # w = np.array([-1, 0.4, 0.1, -0.8])
+
+    # b = np.random.randn()* 0.01
+    # weighted_sum = neuron_ops.weighted_sum_output(x, w, b)
+    # #print(weighted_sum)
+    # activation = neuron_ops.relu(weighted_sum)
+    # #print(activation)
+
+    # x2 = np.array([3,6,7,8,9]) # 1x5
+    # w2 = np.array([[0.3, 0.2, -0.5, -0.06,1],
+    #             [0.99, 0.44, 0.66, -0.14, 0.52],
+    #             [0.456, 0.113, 0.689, -0.957, 0.185],
+    #             [0.68,-0.31,0.02,0.01,-0.24],
+    #             [0.003,-0.008,-0.009,-0.003, 0.005]]) #5x5
+    # hidden_layer_activations = neuron_ops.weighted_sum_layer(x2,w2,b)
+    # output_layer = neuron_ops.weighted_sum_output(hidden_layer_activations, w, -0.2)
+    # relu_activated = neuron_ops.relu(output_layer)
+    # #print(hidden_layer_activations, output_layer, relu_activated)
+
+    # E = np.array([1,0,1])
+    # hidden_layer_activations = np.array([3, 6, 8])
+    # #print(hidden_layer_activations)
+    # all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 3)
+    # #print(outputL)
+    # #print(neuron_ops.backpropagation(outputL,E, weights, biases))
+    # loss = neuron_ops.mean_squared_error(output_layer_activations, E)
+    # print(loss)
+    # gradient_weights, gradient_biases = neuron_ops.backpropagation(all_outputs, output_layer_activations, E, weights, biases)
+
+    # input_weights, input_biases = neuron_ops.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
+
+
+    # all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(hidden_layer_activations, 2, 2, input_weights, input_biases)
+    # loss = neuron_ops.cross_entropy_loss(output_layer_activations, E)#neuron_ops.mean_squared_error(output_layer_activations, E)
+    # loss2 = neuron_ops.cross_entropy_loss_backpropagation(output_layer_activations, E)#neuron_ops.mean_squared_error(output_layer_activations, E)
+
+    # print('\n\nhello', loss, loss2)
+    # #print(input_weights,'\n\n', input_biases)
