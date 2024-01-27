@@ -73,10 +73,12 @@ class neural_network_operations():
         weight_size = len(inputs)
         all_outputs = [np.array(inputs)]
         if weights == None:
-            weights = [np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)] #account for input_layer
+            weights = [np.random.uniform(-1, 1, size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)]
             output_layer_weights = np.random.uniform(-1, 1, size=(output_layer_size, weight_size))
             weights.append(output_layer_weights)
-            biases = np.random.uniform(np.random.randn() * 0.01, size=(num_hidden_layers+1))
+            biases = [np.random.uniform(np.random.randn() * 0.01, size=(len(inputs))) for _ in range(num_hidden_layers)]
+            output_layer_biases = np.random.uniform(np.random.randn() * 0.01, size=(output_layer_size))
+            biases.append(output_layer_biases)
         ind = 0
         #pass layer activations through all hidden layers and calculates activations
         while num_hidden_layers > 0:#0 = output layer
@@ -189,24 +191,18 @@ class neural_network_operations():
         return layer_errors
     
     def gradient_descent(self, input_weights, input_biases, gradient_weights,  gradient_biases, learning_rate):
-        for i in range(len(gradient_weights)):            
-            for j  in range(len(gradient_weights[i])):
-                #print(gradient_weights[i][j])
-                for k in range(len(gradient_weights[i][j])):
-                    #print(gradient_weights[i][j][k])
-                    gradient_weights[i][j][k] = gradient_weights[i][j][k]* learning_rate
-                    input_weights[i][j][k] -= gradient_weights[i][j][k]
-
-        for i in range(len(gradient_biases)):            
-            for j  in range(len(gradient_biases[i])):
-                gradient_biases[i][j] = input_biases[i] - learning_rate*gradient_biases[i][j]
-        input_biases = gradient_biases
+        # print("weights",len(gradient_weights), len(gradient_weights[0]), len(gradient_weights[-1]))
+        # print(gradient_weights)
+        #print("biases",len(gradient_biases), len(gradient_biases[0]), len(gradient_biases[-1]))
+        #print(gradient_biases)   
+        for ind, (weights, biases) in enumerate(zip(gradient_weights, gradient_biases)):#each batch element's set of weights and biases
+            input_weights[ind] -= learning_rate*weights
+            input_biases[ind] -= learning_rate*biases
         return input_weights, input_biases
 
 
     def backpropagation(self, all_outputs, output_layer_activations, expected_layer, all_weights, all_biases):
         num_layers = len(all_weights) #num of weight vectors = num of layers
-        #print(all_weights)
         #1st equation, get output layer errors
         output_layer_errors = self.output_layer_errors(all_outputs[-1], output_layer_activations, expected_layer)
         
@@ -214,8 +210,6 @@ class neural_network_operations():
         previous_layer_errors = self.layer_errors(all_weights[-1], output_layer_errors,  all_outputs[-2])#the layer before the output layer   
         all_cost_wrt_biases = [output_layer_errors, previous_layer_errors]
         for layer in range(num_layers-2, 0, -1):#not including ouput layer and the one before it, and the input layer
-            #print(layer)
-            #if layer ==  
             layer_errors = self.layer_errors(all_weights[layer+1], previous_layer_errors,  all_outputs[layer])
             all_cost_wrt_biases.append(layer_errors)
             previous_layer_errors = layer_errors
@@ -232,26 +226,32 @@ class neural_network_operations():
                 for output in layer_outputs:    
                     cost_wrt_weights_in_neuron.append(error*output)
                 cost_wrt_weights_in_neurons.append(cost_wrt_weights_in_neuron)
-            all_cost_wrt_weights.append(cost_wrt_weights_in_neurons)
+            all_cost_wrt_weights.append(np.array(cost_wrt_weights_in_neurons))
         return all_cost_wrt_weights[::-1], all_cost_wrt_biases[::-1]
     
-    def batch_averages(self, batch_weights, batch_biases):
-        mean_weights = [np.zeros_like(batch_weights[0][0]) for _ in range(len(batch_weights[0]))]
-        mean_biases = [np.zeros_like(batch_biases[0][0]) for _ in range(len(batch_biases[0]))]
-        #print(len(batch_biases), len(batch_biases[0]), len(batch_biases[0][0]))
+    def batch_averages(self, batch_weights, batch_biases):#take the average of the weights and biases of the batch
+        mean_weights = [np.zeros_like(batch_weights[0][0]) for _ in range(len(batch_weights[0])-1)]
+        mean_output_weights = np.zeros_like(batch_weights[0][-1])#output layer can have different num of neurons
+        mean_weights.append(mean_output_weights)
+
+        mean_biases = [np.zeros_like(batch_biases[0][0]) for _ in range(len(batch_biases[0])-1)]
+        mean_output_biases = np.zeros_like(batch_biases[0][-1])#output layer can have different num of neurons
+        mean_biases.append(mean_output_biases)
+
         for weights_set, biases_set in zip(batch_weights, batch_biases):#each batch element's set of weights and biases
             for ind, (weights, biases) in enumerate(zip(weights_set, biases_set)):#for each layer sum weights with previous set of weights
                 mean_weights[ind] += weights
                 mean_biases[ind] += biases
-        #print(sum_weights[0])
+
+        #after summation divide to get mean
         for ind in range(len(mean_biases)):
-            #print(ind, len(mean_biases))
             mean_weights[ind] /= len(batch_weights)
             mean_biases[ind] /= len(batch_biases)
 
 
-        #print(sum_weights, len(batch_weights))
-        print(mean_weights, mean_biases, len(mean_weights), len(mean_biases))
+        #print(len(mean_weights), len(mean_weights[0]),len(mean_weights[-1]), len(mean_weights[0][0]), len(mean_weights[0][-1]))
+        #print(len(mean_biases), len(mean_biases[0]), len(mean_biases[-1]))
+        #print(mean_weights, mean_biases, len(mean_weights), len(mean_biases))
         return mean_weights, mean_biases
     
     def model_trainer(self, batch_size, epochs=0):
@@ -262,14 +262,18 @@ class neural_network_operations():
         batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=True)
         batch_weights = []
         batch_biases = []
-        train_ground_truths[0] = 0.0
-        train_ground_truths[2] = 0.0
+        input_weights, input_biases =[], []
+        batch_size_start_from = 0
+
 
         #print(batch_train_imgs)
 
         while train_cnt > 0 and not breaker:#while there images still to be trained on, keep going
             for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
-                all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, 2, 3)
+                if input_weights and input_biases:
+                    all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, 2, 2, input_weights, input_biases)
+                else:
+                    all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, 2, 2)
                 print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
                 print(output_layer_activations, train_ground_truth)
                 #print(train_img)
@@ -279,18 +283,19 @@ class neural_network_operations():
                 #print(loss)
                 gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights, biases)
 
-                input_weights, input_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
-                batch_weights.append(input_weights)
-                batch_biases.append(input_biases)
+                updated_weights, updated_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
+                print(type(input_weights))
+                batch_weights.append(updated_weights)
+                batch_biases.append(updated_biases)
                 #print('\n\nhello', loss)
-            self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
-            break
-            batch_size_start_from *= 2
-            batch_train_imgs,train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_start_from=batch_size_start_from/2)
+            input_weights, input_biases = self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
+            batch_weights, batch_biases  = [], []
+            batch_size_start_from += batch_size
+            batch_train_imgs,train_ground_truths, train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_start_from=batch_size_start_from)
             if test_cnt <= 0:
-                batch_test_imgs,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
+                batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
             else:
-                batch_test_imgs,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size/2)
+                batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size)
             if batch_size_start_from > 4:
                 breaker = True
 
@@ -317,7 +322,7 @@ if __name__=="__main__":
 
     testing_path = 'test'
     train_path = 'train'
-    batch_size = 5
+    batch_size = 2
     neuron_ops.model_trainer(batch_size, 0)
 
 
