@@ -5,6 +5,7 @@ from numba import jit, cuda
 from numba.experimental import jitclass
 from timeit import default_timer as timer  
 import os
+import json
 
 class neural_network_operations():
 
@@ -265,11 +266,11 @@ class neural_network_operations():
                     all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes, input_weights, input_biases)
                 else:
                     all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes)
-                print("initial weights:",weights[0][:1])
-                #print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
+                #print("initial weights:",weights[0][:1])
+                print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
                 #print(output_layer_activations, train_ground_trut
                 gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights, biases)
-                print("gradient weights:",gradient_weights[0][:1])
+                #print("gradient weights:",gradient_weights[0][:1])
 
                 updated_weights, updated_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
                 batch_weights.append(updated_weights)
@@ -287,9 +288,22 @@ class neural_network_operations():
             #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size)
             if batch_size_start_from > 4:
                 breaker = True
+        data_names = ['weights', 'biases', 'hidden_layers', 'num-classes']
+        self.model_saver(data_names, input_weights, input_biases, num_hidden_layers, num_classes)
+        return input_weights, input_biases, num_hidden_layers, num_classes
+    
+    def model_saver(self, data_names:list, *args):
+        model_file_path = "model_save_state.json"
+        data_to_save = {}
+        for name,arg in zip(data_names, args):
+            if name == 'weights' or name == 'biases':
+                arg = [arr.tolist() for arr in arg]
+            data_to_save[name] = arg
 
-
-
+        #print(data_to_save)
+        with open(model_file_path, 'w') as json_file:
+            json.dump(data_to_save, json_file)
+            
     
 def images_loader(dir_path, batch_size, grayscale=False, batch_start_from=0):#loads a batch of images to be used
 
@@ -301,25 +315,25 @@ def images_loader(dir_path, batch_size, grayscale=False, batch_start_from=0):#lo
     ground_truths = []
     print(ground_truths)
     train_cnt = 0
-    for subdir in subdirectories:
+    for subdir in subdirectories:#loop through directories of classes and get labels and vectorized versin of all imgs 
         images_path = glob.glob(dir_path+'/'+subdir+'/*.jpg') + glob.glob(dir_path+'/'+subdir+'/*.png')
-        #images_label_mapping[subdir] = images_path[batch_start_from:batch_size+batch_start_from]
         if grayscale:
-            images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_start_from:batch_take_amount ]])
+            images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_start_from:batch_take_amount]])
         else:
             images_arr = np.array([Image.open(img_path) for img_path in images_path[batch_start_from:batch_take_amount ]])
-        images_arr = np.array([img.reshape(-1)/255 for img in images_arr])
+        images_arr = np.array([img.reshape(-1)/255.0 for img in images_arr])
         label = [0] * len(subdirectories)
         label[subdirectories.index(subdir)] = 1
-        print("whoopsie")
-        ground_truths.append([label]*(batch_size//2))# if ground_truths.size else label
+        ground_truths.append([label]*(batch_size//2))#multiple label for each image in class
         train_cnt = len(images_path)
         images_vectorized = np.vstack([images_vectorized, images_arr]) if images_vectorized.size else images_arr
 
-    ground_truths = np.concatenate(np.array(ground_truths), axis=0)
-    print(images_vectorized,'\n', ground_truths)
+    ground_truths = np.concatenate(np.array(ground_truths), axis=0)#collapse set of classes to singular set of classes
+    #print(images_vectorized,'\n', ground_truths)
 
+    #shuffle data while keeping labels and images one-to-one
     shuffled_indices = np.random.permutation(batch_size)
+    ground_truths = ground_truths[shuffled_indices]
     images_vectorized = images_vectorized[shuffled_indices]
     #print(images_vectorized)
     return images_arr, ground_truths, train_cnt-batch_size
