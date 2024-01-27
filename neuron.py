@@ -4,6 +4,7 @@ import glob
 from numba import jit, cuda
 from numba.experimental import jitclass
 from timeit import default_timer as timer  
+import os
 
 class neural_network_operations():
 
@@ -54,9 +55,6 @@ class neural_network_operations():
         max_logit = np.max(output_layer_activations)
         exp_logits = np.exp(output_layer_activations - max_logit)
         softmax_values = exp_logits / np.sum(exp_logits)
-        SM = softmax.reshape((-1,1))
-        jac = np.diagflat(softmax) - np.dot(SM, SM.T)
-        #print('\n\n------',softmax_values, softmax, jac)
         return softmax_values
     
     def sigmoid(self, output_layer_activations):
@@ -91,7 +89,6 @@ class neural_network_operations():
             ind += 1  
         
         output_layer_outputs = self.weighted_sum_layer(inputs, weights[ind], biases[ind])
-        print(output_layer_outputs)
         all_outputs.append(output_layer_outputs)
         output_layer_activations = self.softmax(output_layer_outputs)
         return all_outputs, output_layer_activations, weights, biases
@@ -130,21 +127,19 @@ class neural_network_operations():
     def cross_entropy_loss_backpropagation(self, output_layer, expected_layer):
         probabilities = output_layer
         epsilon = 1e-10
-        #print(probabilities[0], expected_layer)
 
         if isinstance(expected_layer, (int, float)):
             loss = -(expected_layer/ (probabilities[0]+epsilon) - (1.0-expected_layer)/(1.0-probabilities[0]+epsilon))
         else:
-            #print('bruh')
             loss = -(expected_layer/(probabilities+epsilon) - (1.0-expected_layer)/(1.0-probabilities+epsilon))
         return loss
     
     def relu_backpropagation(self, activatables) -> 0 | 1:#derivative of relu
-        activations = np.array([])
         activator = lambda activation: 0 if activation <= 0 else 1
         if isinstance(activatables, (int, float)):#if single neuron to activate
             return activator(activatables)
         else:
+            activations = np.array([])
             for activatable in activatables:
                 activations = np.append(activations, activator(activatable))
             return activations
@@ -166,15 +161,11 @@ class neural_network_operations():
     def output_layer_errors(self, output_layer_outputs, output_layer_activations, expected_layer) -> np.array([]):#gets the last layer's errors
         errors = np.array([])
         #neuron_mse_bps = np.array([])
-        #print(output_layer_outputs, output_layer_activations)
-        # for activation, expected in zip(output_layer_activations, expected_layer):
+        # for activation, expected in zip(output_layer_activations, expected_layer): #used for MSE
         #     neuron_mse_bps = np.append(neuron_mse_bps, self.mean_squared_error_backpropagation(activation, expected)) #MSE derivative
         costs_output_layer = self.cross_entropy_loss_backpropagation(output_layer_activations, expected_layer)
-        softmax_activation_bps = self.softmax_backpropagation(output_layer_outputs) #relu derivative
-        #print(softmax_activation_bps)
+        softmax_activation_bps = self.softmax_backpropagation(output_layer_outputs) #relu derivative    
         errors = np.append(errors, self.hadamard_product(costs_output_layer, softmax_activation_bps))#element wise product
-        #print('test',errors)
-
         return errors
     
     def layer_errors(self, previous_layer_weights, previous_layer_errors, current_layer_outputs):
@@ -214,19 +205,20 @@ class neural_network_operations():
             all_cost_wrt_biases.append(layer_errors)
             previous_layer_errors = layer_errors
 
-        
         # #4th equation get the cost w.r.t weights
         all_cost_wrt_weights = []
-        #layer_errors * activations of the previous layer
-        for layer_errors, layer_outputs in zip(all_cost_wrt_biases, all_outputs[-2::-1]): #ignore output layer's activations
+        #activations * layer_errors of the previous layer
+        all_outputs.pop(-1)
+        for layer_errors, layer_outputs in zip(all_cost_wrt_biases, all_outputs[::-1]): #ignore output layer's activations
             cost_wrt_weights_in_neurons = []
             layer_outputs = self.relu(layer_outputs)
             for error in layer_errors:
                 cost_wrt_weights_in_neuron = []
                 for output in layer_outputs:    
-                    cost_wrt_weights_in_neuron.append(error*output)
+                    cost_wrt_weights_in_neuron.append(output*error)
                 cost_wrt_weights_in_neurons.append(cost_wrt_weights_in_neuron)
             all_cost_wrt_weights.append(np.array(cost_wrt_weights_in_neurons))
+
         return all_cost_wrt_weights[::-1], all_cost_wrt_biases[::-1]
     
     def batch_averages(self, batch_weights, batch_biases):#take the average of the weights and biases of the batch
@@ -258,71 +250,86 @@ class neural_network_operations():
         testing_path = 'test'
         train_path = 'train'
         breaker = False        
-        batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)
+        #batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)
         batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=True)
         batch_weights = []
         batch_biases = []
         input_weights, input_biases =[], []
         batch_size_start_from = 0
-
-
-        #print(batch_train_imgs)
+        num_hidden_layers = 1
 
         while train_cnt > 0 and not breaker:#while there images still to be trained on, keep going
             for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
+                num_classes = len(train_ground_truth)
                 if input_weights and input_biases:
-                    all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, 2, 2, input_weights, input_biases)
+                    all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes, input_weights, input_biases)
                 else:
-                    all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, 2, 2)
-                print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
-                print(output_layer_activations, train_ground_truth)
-                #print(train_img)
-                #print(outputL)
-                #print(neuron_ops.backpropagation(outputL,E, weights, biases))
-                #loss = self.mean_squared_error(output_layer_activations,  test_img)
-                #print(loss)
+                    all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes)
+                print("initial weights:",weights[0][:1])
+                #print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
+                #print(output_layer_activations, train_ground_trut
                 gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights, biases)
+                print("gradient weights:",gradient_weights[0][:1])
 
                 updated_weights, updated_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  0.001)
-                print(type(input_weights))
                 batch_weights.append(updated_weights)
                 batch_biases.append(updated_biases)
+                print("updated weights:",batch_weights[0][0][:1])
+
                 #print('\n\nhello', loss)
             input_weights, input_biases = self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
             batch_weights, batch_biases  = [], []
             batch_size_start_from += batch_size
             batch_train_imgs,train_ground_truths, train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_start_from=batch_size_start_from)
-            if test_cnt <= 0:
-                batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
-            else:
-                batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size)
+            # if test_cnt <= 0:
+            #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
+            # else:
+            #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size)
             if batch_size_start_from > 4:
                 breaker = True
 
 
 
-
-
     
-def images_loader(path, batch_size, grayscale=False, batch_start_from=0):#loads a batch of images to be used
-    images_paths=glob.glob(path+'/*.jpg') + glob.glob(path+'/*.png')
-    ground_truths = np.ones(batch_size)
-    #print(ground_truths)
-    #print(images_paths[batch_start_from:batch_size+batch_start_from])
-    if grayscale:
-        images_arr = np.array([ImageOps.grayscale(Image.open(img_path)) for img_path in images_paths[batch_start_from:batch_size+batch_start_from]])
-    else:
-        images_arr = np.array([Image.open(img_path) for img_path in images_paths[batch_start_from:batch_size+batch_start_from]])
-    images_arr = np.array([img.reshape(-1)/255 for img in images_arr])
-    #print(images_arr)
-    return images_arr, ground_truths,len(images_paths)-batch_size
+def images_loader(dir_path, batch_size, grayscale=False, batch_start_from=0):#loads a batch of images to be used
+
+    images_vectorized = np.array([])
+    subdirectories = [d for d in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, d))]
+    label_mapping = {label: index for index, label in enumerate(subdirectories)}
+    batch_take_amount = batch_size+batch_start_from-(len(subdirectories)-1)
+    images_label_mapping = {}
+    ground_truths = []
+    print(ground_truths)
+    train_cnt = 0
+    for subdir in subdirectories:
+        images_path = glob.glob(dir_path+'/'+subdir+'/*.jpg') + glob.glob(dir_path+'/'+subdir+'/*.png')
+        #images_label_mapping[subdir] = images_path[batch_start_from:batch_size+batch_start_from]
+        if grayscale:
+            images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_start_from:batch_take_amount ]])
+        else:
+            images_arr = np.array([Image.open(img_path) for img_path in images_path[batch_start_from:batch_take_amount ]])
+        images_arr = np.array([img.reshape(-1)/255 for img in images_arr])
+        label = [0] * len(subdirectories)
+        label[subdirectories.index(subdir)] = 1
+        print("whoopsie")
+        ground_truths.append([label]*(batch_size//2))# if ground_truths.size else label
+        train_cnt = len(images_path)
+        images_vectorized = np.vstack([images_vectorized, images_arr]) if images_vectorized.size else images_arr
+
+    ground_truths = np.concatenate(np.array(ground_truths), axis=0)
+    print(images_vectorized,'\n', ground_truths)
+
+    shuffled_indices = np.random.permutation(batch_size)
+    images_vectorized = images_vectorized[shuffled_indices]
+    #print(images_vectorized)
+    return images_arr, ground_truths, train_cnt-batch_size
 
 if __name__=="__main__":
     neuron_ops = neural_network_operations()
 
     testing_path = 'test'
     train_path = 'train'
-    batch_size = 2
+    batch_size = 8
     neuron_ops.model_trainer(batch_size, 0)
 
 
