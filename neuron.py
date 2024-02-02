@@ -1,8 +1,8 @@
 import numpy as np
 from PIL import Image, ImageOps
 import glob
-from numba import jit, cuda
-from numba.experimental import jitclass
+# from numba import jit, cuda
+# from numba.experimental import jitclass
 from timeit import default_timer as timer  
 import os
 import json
@@ -257,7 +257,7 @@ class neural_network_operations():
         batch_weights = []
         batch_biases = []
         weights, biases =[], []
-        batch_size_start_from = 0
+        batch_iter = 0
         num_hidden_layers = 1
         learning_rate = 0.00001
         while epochs > 0:
@@ -270,32 +270,34 @@ class neural_network_operations():
                     else:
                         all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes)
                     #print("initial weights:",weights[0][:1])
-                    print('loss:', self.cross_entropy_loss(output_layer_activations, train_ground_truth))
+                    print('loss:', np.sum(self.cross_entropy_loss(output_layer_activations, train_ground_truth)))
                     #print(output_layer_activations)
                     gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights)
                     #print("gradient weights:",gradient_weights[0][:1])
 
                     train_example_weights, train_example_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  learning_rate)
-                    print(weights[0][:1])
+                    #print(weights[0][:1])
                     batch_weights.append(train_example_weights)
                     batch_biases.append(train_example_biases)
-                    print("updated weights:",train_example_weights[0][:1])
+                    #print("updated weights:",train_example_weights[0][:1])
 
-                print(len(batch_weights))            
+                #print(len(batch_weights))            
                 weights, biases = self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
                 batch_weights, batch_biases  = [], []
-                batch_size_start_from += batch_size
-                if train_cnt <= batch_size_start_from:
-                    batch_size_start_from = 0
+                batch_iter += 1
+                if train_cnt <= (batch_size*batch_iter):
+                    batch_iter = 0
                     break
-                batch_train_imgs,train_ground_truths, train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_start_from=batch_size_start_from)
+                batch_train_imgs,train_ground_truths, train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_iter=batch_iter)
                 # if test_cnt <= 0:
                 #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
                 # else:
-                #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_start_from=batch_size)
+                #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_iter=batch_size)
 
-            data_names = ['weights', 'biases', 'hidden_layers', 'classes']
-            self.model_saver(data_names, weights, biases, num_hidden_layers, classes)
+                data_names = ['weights', 'biases', 'hidden_layers', 'classes']
+                self.model_saver(data_names, weights, biases, num_hidden_layers)
+                if batch_iter > 5:
+                    break
             epochs -= 1
         return weights, biases, num_hidden_layers, train_ground_truths[0]
     
@@ -327,30 +329,40 @@ class neural_network_operations():
 
         return weights, biases, num_hidden_layers, classes          
     
-def images_loader(dir_path, batch_size, grayscale=False, batch_start_from=0):#loads a batch of images to be used
+
+    
+def images_loader(dir_path, batch_size, grayscale=False, batch_iter=0):#loads a batch of images to be used
 
     images_vectorized = np.array([])
     subdirectories = [d for d in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, d))]
-    label_mapping = {label: index for index, label in enumerate(subdirectories)}
-    batch_take_amount = batch_size+batch_start_from-(len(subdirectories)-1)
+    #label_mapping = {label: index for index, label in enumerate(subdirectories)}
+    #print(label_mapping)
+    batch_leftover = batch_size % len(subdirectories)
+    batch_size = (batch_size-batch_leftover)//len(subdirectories)
+    batch_take_from = batch_iter*batch_size
+    batch_take_until = batch_take_from+batch_size 
+
+    print(batch_take_from,batch_take_until, batch_size)
     ground_truths = []
-    print(subdirectories)
+    #print(subdirectories)
     train_cnt = 0
-    for subdir in subdirectories:#loop through directories of classes and get labels and vectorized versin of all imgs 
+    for subdir in subdirectories:#loop through directories of classes and get labels and vectorized versin of all imgs
         images_path = glob.glob(dir_path+'/'+subdir+'/*.jpg') + glob.glob(dir_path+'/'+subdir+'/*.png')
         np.random.shuffle(images_path)#shuffle dataset to avoid getting stuck
+        if train_cnt == 0:
+            train_cnt = len(images_path)
+        print(images_path[batch_take_from:batch_take_until])
         if grayscale:
-            images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_start_from:batch_take_amount]])
+            images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_take_from:batch_take_until]])
         else:
-            images_arr = np.array([Image.open(img_path) for img_path in images_path[batch_start_from:batch_take_amount ]])
+            images_arr = np.array([Image.open(img_path) for img_path in images_path[batch_take_from:batch_take_until ]])
         images_arr = np.array([img.reshape(-1)/255.0 for img in images_arr])
         label = [0] * len(subdirectories)
         label[subdirectories.index(subdir)] = 1
         ground_truths.append([label]*(batch_size//2))#multiple label for each image in class
-        train_cnt = len(images_path)
         images_vectorized = np.vstack([images_vectorized, images_arr]) if images_vectorized.size else images_arr
 
-    print(ground_truths)
+    #print(ground_truths)
     ground_truths = np.concatenate(np.array(ground_truths), axis=0)#collapse set of classes to singular set of classes
     #print(images_vectorized,'\n', ground_truths)
 
@@ -359,24 +371,28 @@ def images_loader(dir_path, batch_size, grayscale=False, batch_start_from=0):#lo
     ground_truths = ground_truths[shuffled_indices]
     images_vectorized = images_vectorized[shuffled_indices]
     #print(images_vectorized)
-    return images_vectorized, ground_truths, train_cnt-batch_size
+    return images_vectorized, ground_truths, train_cnt-batch_take_until
+
 
 if __name__=="__main__":
     neuron_ops = neural_network_operations()
 
     testing_path = 'test'
     train_path = 'train'
-    batch_size = 32
-    weights, input_biases, num_hidden_layers, classes = neuron_ops.model_loader()
-    img = np.array([ImageOps.grayscale(Image.open('valid/kag_7786.png').resize((35,35)))])
-    img = np.array([img.reshape(-1)/255.0])
-    ground_truth = np.array([1, 0, 0])
-    print(classes)
-    print(img)
+    batch_size = 64
 
-    all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(img[0], num_hidden_layers, len(classes), weights, input_biases)
-    print(output_layer_activations)
-    #neuron_ops.model_trainer(batch_size, 2)
+    # weights, input_biases, num_hidden_layers, classes = neuron_ops.model_loader()
+    # img = np.array([ImageOps.grayscale(Image.open('valid/cat_9999.png').resize((35,35)))])
+    # img = np.array([img.reshape(-1)/255.0])
+    # ground_truth = np.array([1, 0, 0])
+    # print(classes)
+    # print(img)
+
+    # all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(img[0], num_hidden_layers, len(classes), weights, input_biases)
+    # print(output_layer_activations)
+
+    neuron_ops.model_trainer(batch_size, 2)
+
 
 
 
