@@ -249,11 +249,10 @@ class neural_network_operations():
         #print(mean_weights, mean_biases, len(mean_weights), len(mean_biases))
         return mean_weights, mean_biases
     
-    def batch_trainer(self, train_path, batch_size, batch_iter, num_hidden_layers, learning_rate, grayscale=True):
-        batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=grayscale ,batch_iter=batch_iter)
+    def batch_trainer(self, train_path, weights, biases, batch_size, batch_num, num_hidden_layers, learning_rate, grayscale=True):
+        batch_train_imgs,train_ground_truths = images_loader(train_path, batch_size, grayscale=grayscale , batch_num=batch_num)
         batch_weights = []
         batch_biases = []
-        weights, biases =[], []
         for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
             num_classes = len(train_ground_truth)
             if weights and biases:
@@ -276,44 +275,62 @@ class neural_network_operations():
         weights, biases = self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
         return weights, biases
 
+    def get_num_batches(self, train_path, batch_size):
+        subdirectories = [d for d in os.listdir(train_path) if os.path.isdir(os.path.join(train_path, d))]
+        train_cnt = 0
+        num_batches = 0
+        for subdir in subdirectories:
+            images = glob.glob(train_path+'/'+subdir+'/*.jpg') + glob.glob(train_path+'/'+subdir+'/*.png')
+            if train_cnt == 0 or train_cnt > len(images):#final batch of images is determined by the dir with the least num of images
+                train_cnt = len(images)
+        while train_cnt > (batch_size*num_batches) and num_batches < 4:
+                #weights, biases = self.batch_trainer(train_path, batch_size, num_batches, num_hidden_layers, learning_rate)
+                num_batches += 1
+        return num_batches
     def model_trainer(self, batch_size, epochs=1):
         testing_path = 'test'
         train_path = 'train'
         breaker = False        
-        #batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)
-        batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=True)
+        #batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)  
 
-        batch_iter = 0
+        num_batches = self.get_num_batches(train_path, batch_size)
         num_hidden_layers = 1
         learning_rate = 0.00001
         epoch_weights, epoch_biases = [], []
-        
+        final_weights, final_biases = [], []
         while epochs > 0:
             print("Epochs Remaining:", epochs)
-            while train_cnt > (batch_size*batch_iter) and batch_iter < 4:
-                #weights, biases = self.batch_trainer(train_path, batch_size, batch_iter, num_hidden_layers, learning_rate)
-                batch_iter += 1
                 # epoch_weights.append(weights)
                 # epoch_biases.append(biases)
-                print("--------------------------------->",batch_iter)
-            epoch_results = self.execute_batches_in_parallel([train_path, batch_size, batch_iter, num_hidden_layers, learning_rate])
+            epoch_results = self.execute_batches_in_parallel([train_path, final_weights, final_biases, batch_size, num_batches, num_hidden_layers, learning_rate])
             
-            # data_names = ['weights', 'biases', 'hidden_layers', 'classes']
-            # self.model_saver(data_names, weights, biases, num_hidden_layers)
-            # if batch_iter > 5:
+            for batch_results in epoch_results:
+                epoch_weights.append(batch_results[0])
+                epoch_biases.append(batch_results[1])
+            final_weights, final_biases = self.batch_averages(epoch_weights, epoch_biases)
+            print(final_weights[0])
+
+
+            # if num_batches > 5:
             #     break
+            #for batch_values in epoch_results:
+            data_names = ['weights', 'biases', 'hidden_layers', 'classes']
+            self.model_saver(data_names, final_weights, final_biases, num_hidden_layers)
             epochs -= 1
 
         # weights,biases = self.batch_averages(epoch_weights, epoch_biases)
-        print(len(epoch_results))
+            
+        print(len(final_weights))
         # return weights, biases, num_hidden_layers, train_ground_truths[0]
     
     def execute_batches_in_parallel(self, data):
-        train_path, batch_size, batch_iter, num_hidden_layers, learning_rate = data
+        train_path, weights, biases, batch_size, num_batches, num_hidden_layers, learning_rate = data
         with cf.ProcessPoolExecutor() as executor:
-            res = [executor.submit(self.batch_trainer, train_path, batch_size, batch_iter, num_hidden_layers, learning_rate) for batch_iter in range (batch_iter)]
-            cf.wait(res)
-        return res
+            futures = [executor.submit(self.batch_trainer, train_path, weights, biases, batch_size, num_batches, num_hidden_layers, learning_rate) for num_batches in range (num_batches)]
+            cf.wait(futures)
+        results = [future.result() for future in cf.as_completed(futures)]
+
+        return results
     
     def model_saver(self, data_names:list, *args):
         subdirectories = [d for d in os.listdir('train') if os.path.isdir(os.path.join('train', d))]
@@ -345,7 +362,7 @@ class neural_network_operations():
     
 
     
-def images_loader(dir_path, batch_size, grayscale=False, batch_iter=0):#loads a batch of images to be used
+def images_loader(dir_path, batch_size, grayscale=False, batch_num=0):#loads a batch of images to be used
 
     images_vectorized = np.array([])
     subdirectories = [d for d in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, d))]
@@ -353,18 +370,15 @@ def images_loader(dir_path, batch_size, grayscale=False, batch_iter=0):#loads a 
     #print(label_mapping)
     batch_leftover = batch_size % len(subdirectories)
     batch_size = (batch_size-batch_leftover)//len(subdirectories)
-    batch_take_from = batch_iter*batch_size
+    batch_take_from = batch_num*batch_size
     batch_take_until = batch_take_from+batch_size 
 
     print(batch_take_from,batch_take_until, batch_size)
     ground_truths = []
     #print(subdirectories)
-    train_cnt = 0
     for subdir in subdirectories:#loop through directories of classes and get labels and vectorized versin of all imgs
         images_path = glob.glob(dir_path+'/'+subdir+'/*.jpg') + glob.glob(dir_path+'/'+subdir+'/*.png')
         np.random.shuffle(images_path)#shuffle dataset to avoid getting stuck
-        if train_cnt == 0:
-            train_cnt = len(images_path)
         #print(images_path[batch_take_from:batch_take_until])
         if grayscale:
             images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_take_from:batch_take_until]])
@@ -385,7 +399,7 @@ def images_loader(dir_path, batch_size, grayscale=False, batch_iter=0):#loads a 
     ground_truths = ground_truths[shuffled_indices]
     images_vectorized = images_vectorized[shuffled_indices]
     #print(images_vectorized)
-    return images_vectorized, ground_truths, train_cnt-batch_take_until
+    return images_vectorized, ground_truths
 
 
 if __name__=="__main__":
