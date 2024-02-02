@@ -6,6 +6,7 @@ import glob
 from timeit import default_timer as timer  
 import os
 import json
+import concurrent.futures as cf
 
 class neural_network_operations():
 
@@ -248,58 +249,71 @@ class neural_network_operations():
         #print(mean_weights, mean_biases, len(mean_weights), len(mean_biases))
         return mean_weights, mean_biases
     
+    def batch_trainer(self, train_path, batch_size, batch_iter, num_hidden_layers, learning_rate, grayscale=True):
+        batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=grayscale ,batch_iter=batch_iter)
+        batch_weights = []
+        batch_biases = []
+        weights, biases =[], []
+        for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
+            num_classes = len(train_ground_truth)
+            if weights and biases:
+                all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes, weights, biases)
+            else:
+                all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes)
+            #print("initial weights:",weights[0][:1])
+            print('loss:', np.sum(self.cross_entropy_loss(output_layer_activations, train_ground_truth)))
+            #print(output_layer_activations)
+            gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights)
+            #print("gradient weights:",gradient_weights[0][:1])
+
+            train_example_weights, train_example_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  learning_rate)
+            #print(weights[0][:1])
+            batch_weights.append(train_example_weights)
+            batch_biases.append(train_example_biases)
+            #print("updated weights:",train_example_weights[0][:1])
+            #print(len(batch_weights))  
+            #           
+        weights, biases = self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
+        return weights, biases
+
     def model_trainer(self, batch_size, epochs=1):
         testing_path = 'test'
         train_path = 'train'
         breaker = False        
         #batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)
         batch_train_imgs,train_ground_truths,train_cnt = images_loader(train_path, batch_size, grayscale=True)
-        batch_weights = []
-        batch_biases = []
-        weights, biases =[], []
+
         batch_iter = 0
         num_hidden_layers = 1
         learning_rate = 0.00001
+        epoch_weights, epoch_biases = [], []
+        
         while epochs > 0:
             print("Epochs Remaining:", epochs)
-            while train_cnt > 0 and not breaker:#while there images still to be trained on, keep going
-                for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
-                    num_classes = len(train_ground_truth)
-                    if weights and biases:
-                        all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes, weights, biases)
-                    else:
-                        all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes)
-                    #print("initial weights:",weights[0][:1])
-                    print('loss:', np.sum(self.cross_entropy_loss(output_layer_activations, train_ground_truth)))
-                    #print(output_layer_activations)
-                    gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights)
-                    #print("gradient weights:",gradient_weights[0][:1])
-
-                    train_example_weights, train_example_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  learning_rate)
-                    #print(weights[0][:1])
-                    batch_weights.append(train_example_weights)
-                    batch_biases.append(train_example_biases)
-                    #print("updated weights:",train_example_weights[0][:1])
-
-                #print(len(batch_weights))            
-                weights, biases = self.batch_averages(batch_weights, batch_biases)#calculate average values for all weights and biases
-                batch_weights, batch_biases  = [], []
+            while train_cnt > (batch_size*batch_iter) and batch_iter < 4:
+                #weights, biases = self.batch_trainer(train_path, batch_size, batch_iter, num_hidden_layers, learning_rate)
                 batch_iter += 1
-                if train_cnt <= (batch_size*batch_iter):
-                    batch_iter = 0
-                    break
-                batch_train_imgs,train_ground_truths, train_cnt = images_loader(train_path, batch_size, grayscale=True, batch_iter=batch_iter)
-                # if test_cnt <= 0:
-                #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True )
-                # else:
-                #     batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True, batch_iter=batch_size)
-
-                data_names = ['weights', 'biases', 'hidden_layers', 'classes']
-                self.model_saver(data_names, weights, biases, num_hidden_layers)
-                if batch_iter > 5:
-                    break
+                # epoch_weights.append(weights)
+                # epoch_biases.append(biases)
+                print("--------------------------------->",batch_iter)
+            epoch_results = self.execute_batches_in_parallel([train_path, batch_size, batch_iter, num_hidden_layers, learning_rate])
+            
+            # data_names = ['weights', 'biases', 'hidden_layers', 'classes']
+            # self.model_saver(data_names, weights, biases, num_hidden_layers)
+            # if batch_iter > 5:
+            #     break
             epochs -= 1
-        return weights, biases, num_hidden_layers, train_ground_truths[0]
+
+        # weights,biases = self.batch_averages(epoch_weights, epoch_biases)
+        print(len(epoch_results))
+        # return weights, biases, num_hidden_layers, train_ground_truths[0]
+    
+    def execute_batches_in_parallel(self, data):
+        train_path, batch_size, batch_iter, num_hidden_layers, learning_rate = data
+        with cf.ProcessPoolExecutor() as executor:
+            res = [executor.submit(self.batch_trainer, train_path, batch_size, batch_iter, num_hidden_layers, learning_rate) for batch_iter in range (batch_iter)]
+            cf.wait(res)
+        return res
     
     def model_saver(self, data_names:list, *args):
         subdirectories = [d for d in os.listdir('train') if os.path.isdir(os.path.join('train', d))]
@@ -351,7 +365,7 @@ def images_loader(dir_path, batch_size, grayscale=False, batch_iter=0):#loads a 
         np.random.shuffle(images_path)#shuffle dataset to avoid getting stuck
         if train_cnt == 0:
             train_cnt = len(images_path)
-        print(images_path[batch_take_from:batch_take_until])
+        #print(images_path[batch_take_from:batch_take_until])
         if grayscale:
             images_arr = np.array([ImageOps.grayscale(Image.open(img_path).resize((35,35))) for img_path in images_path[batch_take_from:batch_take_until]])
         else:
@@ -379,7 +393,7 @@ if __name__=="__main__":
 
     testing_path = 'test'
     train_path = 'train'
-    batch_size = 64
+    batch_size = 9
 
     # weights, input_biases, num_hidden_layers, classes = neuron_ops.model_loader()
     # img = np.array([ImageOps.grayscale(Image.open('valid/cat_9999.png').resize((35,35)))])
@@ -392,7 +406,7 @@ if __name__=="__main__":
     # print(output_layer_activations)
 
     neuron_ops.model_trainer(batch_size, 2)
-
+    #execute_batches_in_parallel(fun, batch_size)
 
 
 
