@@ -9,7 +9,7 @@ import json
 import concurrent.futures as cf
 from tensorflow.keras.datasets import mnist
 from tensorflow.keras.utils import to_categorical
-
+import matplotlib.pyplot as plt
 
 class neural_network_operations():
 
@@ -72,14 +72,15 @@ class neural_network_operations():
             sigmoid = np.append(sigmoid, probability)
         return sigmoid
     
-    def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None):
-        weight_size = len(inputs)
+    def feed_forward(self, inputs, num_hidden_layers:int, output_layer_size:int, weights=None, biases=None, weight_size=128):
         all_outputs = [np.array(inputs)]
         if weights == None:
-            weights = [np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(len(inputs), weight_size)) for _ in range(num_hidden_layers)]
+            first_hidden_layer_weights = np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(weight_size, len(inputs)))#first hidden takes in the input features
+            weights = [np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(weight_size, weight_size)) for _ in range(num_hidden_layers-1)] #ignore first hidden layer weights
+            weights.insert(0, first_hidden_layer_weights)
             output_layer_weights = np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(output_layer_size, weight_size))
             weights.append(output_layer_weights)
-            biases = [np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(len(inputs))) for _ in range(num_hidden_layers)]
+            biases = [np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(weight_size)) for _ in range(num_hidden_layers)]
             output_layer_biases = np.random.uniform(0.0, np.sqrt(2/len(inputs)), size=(output_layer_size))
             biases.append(output_layer_biases)
         ind = 0
@@ -163,7 +164,7 @@ class neural_network_operations():
                 hadamard_res = np.append(hadamard_res, cost*activation)
         return hadamard_res
 
-    def output_layer_errors(self, output_layer_outputs, output_layer_activations, expected_layer) -> np.array([]):#gets the last layer's errors
+    def output_layer_errors(self, output_layer_outputs: np.array, output_layer_activations: np.array, expected_layer: np.array) -> np.array:#gets the last layer's errors
         errors = np.array([])
         #neuron_mse_bps = np.array([])
         # for activation, expected in zip(output_layer_activations, expected_layer): #used for MSE
@@ -188,12 +189,18 @@ class neural_network_operations():
     
     def gradient_descent(self, input_weights, input_biases, gradient_weights,  gradient_biases, learning_rate):
         # print("weights",len(gradient_weights), len(gradient_weights[0]), len(gradient_weights[-1]))
-        # print(gradient_weights)
+        #print("Gradient: ",gradient_weights[0].shape, len(gradient_weights), len(gradient_biases), gradient_biases[0].shape)
+       # print("\ninput: ", input_weights[0].shape, len(input_weights), len(input_biases), input_biases[0].shape)
         #print("biases",len(gradient_biases), len(gradient_biases[0]), len(gradient_biases[-1]))
         #print(gradient_biases)   
         for ind, (weights, biases) in enumerate(zip(gradient_weights, gradient_biases)):#each batch element's set of weights and biases
+            #print("\nIND:", ind)
+            #print("weight shapes", input_weights[1].shape, gradient_weights[1].shape)
             input_weights[ind] -= learning_rate*weights
+            #print("weightss", input_weights[ind].shape, weights.shape)
             input_biases[ind] -= learning_rate*biases
+            #print("biases", input_biases[ind].shape, biases.shape)
+
         return input_weights, input_biases
 
 
@@ -227,10 +234,11 @@ class neural_network_operations():
         return all_cost_wrt_weights[::-1], all_cost_wrt_biases[::-1]
     
     def batch_averages(self, batch_weights, batch_biases):#take the average of the weights and biases of the batch
-        mean_weights = [np.zeros_like(batch_weights[0][0]) for _ in range(len(batch_weights[0])-1)]
+        mean_weights_first_hidden = np.zeros_like(batch_weights[0][0])
+        mean_weights = [np.zeros_like(batch_weights[0][1]) for _ in range(len(batch_weights[0])-2)]#first and output layer can have different neuron sizes
         mean_output_weights = np.zeros_like(batch_weights[0][-1])#output layer can have different num of neurons
         mean_weights.append(mean_output_weights)
-
+        mean_weights.insert(0, mean_weights_first_hidden)
         mean_biases = [np.zeros_like(batch_biases[0][0]) for _ in range(len(batch_biases[0])-1)]
         mean_output_biases = np.zeros_like(batch_biases[0][-1])#output layer can have different num of neurons
         mean_biases.append(mean_output_biases)
@@ -252,28 +260,22 @@ class neural_network_operations():
         #print(mean_weights, mean_biases, len(mean_weights), len(mean_biases))
         return mean_weights, mean_biases
     
-    def batch_trainer(self, train_path, weights, biases, batch_size, batch_num, num_hidden_layers, learning_rate, grayscale=True):
-        (batch_train_imgs,train_ground_truths) , (_, _) = mnist.load_data()
-        batch_train_imgs,train_ground_truths = mnist_batches(batch_train_imgs, to_categorical(train_ground_truths), batch_size, batch_num)
+    def batch_trainer(self, batch_train_imgs, batch_train_labels, weights, biases, num_classes, num_hidden_layers, learning_rate, grayscale=True):
 
-        #batch_train_imgs,train_ground_truths = images_loader(train_path, batch_size, grayscale=grayscale , batch_num=batch_num)
+        #batch_train_imgs,batch_train_labels = images_loader(train_path, batch_size, grayscale=grayscale , batch_num=batch_num)
         batch_weights = []
         batch_biases = []
         average_loss = 0.0
-        for train_img, train_ground_truth in zip(batch_train_imgs, train_ground_truths):#for each train and test img, get new weights and biases
-            try:
-                num_classes = len(train_ground_truth)
-            except:
-                num_classes = 1
+        for train_img, batch_train_label in zip(batch_train_imgs, batch_train_labels):#for each train and test img, get new weights and biases
             if weights and biases:
                 all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes, weights, biases)
             else:
                 all_outputs, output_layer_activations, weights, biases = self.feed_forward(train_img, num_hidden_layers, num_classes)
             #print("initial weights:",weights[0][:1])
-            average_loss += np.sum(self.cross_entropy_loss(output_layer_activations, train_ground_truth))
-            print('loss:', np.sum(self.cross_entropy_loss(output_layer_activations, train_ground_truth)))
-            #print(output_layer_activations)
-            gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, train_ground_truth, weights)
+            average_loss += np.sum(self.cross_entropy_loss(output_layer_activations, batch_train_label))
+            #print('loss:', np.sum(self.cross_entropy_loss(output_layer_activations, batch_train_label)))
+            #print(len(train_img))
+            gradient_weights, gradient_biases = self.backpropagation(all_outputs, output_layer_activations, batch_train_label, weights)
             #print("gradient weights:",gradient_weights[0][:1])
 
             train_example_weights, train_example_biases = self.gradient_descent(weights, biases, gradient_weights, gradient_biases,  learning_rate)
@@ -288,15 +290,14 @@ class neural_network_operations():
         average_loss /= len(batch_train_imgs)
         return weights, biases, average_loss
 
-    def get_num_batches(self, train_path, batch_size):
-        subdirectories = [d for d in os.listdir(train_path) if os.path.isdir(os.path.join(train_path, d))]
-        train_cnt = 0
+    def get_num_batches(self, batch_train_imgs, batch_size):
+        #subdirectories = [d for d in os.listdir(train_path) if os.path.isdir(os.path.join(train_path, d))]
         num_batches = 0
-        for subdir in subdirectories:
-            images = glob.glob(train_path+'/'+subdir+'/*.jpg') + glob.glob(train_path+'/'+subdir+'/*.png')
-            if train_cnt == 0 or train_cnt > len(images):#final batch of images is determined by the dir with the least num of images
-                train_cnt = len(images)
-        while train_cnt > (batch_size*num_batches) and num_batches < 4:
+        # for subdir in subdirectories:
+        #     images = glob.glob(train_path+'/'+subdir+'/*.jpg') + glob.glob(train_path+'/'+subdir+'/*.png')
+        #     if train_cnt == 0 or train_cnt > len(images):#final batch of images is determined by the dir with the least num of images
+        #         train_cnt = len(images)
+        while len(batch_train_imgs) > (batch_size*num_batches):#batch traun_imgs is a vector consisting of images
                 #weights, biases = self.batch_trainer(train_path, batch_size, num_batches, num_hidden_layers, learning_rate)
                 num_batches += 1
         return num_batches
@@ -305,19 +306,28 @@ class neural_network_operations():
         train_path = 'train'
         breaker = False        
         #batch_test_imgs,test_ground_truths,test_cnt = images_loader(testing_path, batch_size, grayscale=True)  
-
-        num_batches = self.get_num_batches(train_path, batch_size)
-        num_hidden_layers = 1
-        learning_rate = 0.00001
-        epoch_weights, epoch_biases = [], []
+        (train_imgs,train_labels) , (_, _) = mnist.load_data()
+        train_labels = to_categorical(train_labels)
+        num_batches = self.get_num_batches(train_imgs, batch_size)
+        num_classes = len(train_labels[0])
+        print(num_classes)
+        num_hidden_layers = 2
+        learning_rate = 1e-3
         final_weights, final_biases = [], []
         lowest_loss = -1
+        print(num_batches, num_classes)
         while epochs > 0:
             average_epoch_loss = []
+            epoch_weights, epoch_biases = [], []
+            epoch_train_imgs_batches, epoch_train_labels_batches = [], []
             print("Epochs Remaining:", epochs)
                 # epoch_weights.append(weights)
                 # epoch_biases.append(biases)
-            epoch_results = self.execute_batches_in_parallel([train_path, final_weights, final_biases, batch_size, num_batches, num_hidden_layers, learning_rate])
+            for batch_num in range(num_batches):
+                batch_train_imgs,batch_train_labels = mnist_batches(train_imgs, train_labels, batch_size, batch_num)
+                epoch_train_imgs_batches.append(batch_train_imgs)
+                epoch_train_labels_batches.append(batch_train_labels)
+            epoch_results = self.execute_batches_in_parallel([epoch_train_imgs_batches, epoch_train_labels_batches, final_weights, final_biases, num_classes, num_hidden_layers, learning_rate])
             
             for batch_results in epoch_results:
                 epoch_weights.append(batch_results[0])
@@ -336,12 +346,12 @@ class neural_network_operations():
         # weights,biases = self.batch_averages(epoch_weights, epoch_biases)
             
         print(len(final_weights))
-        # return weights, biases, num_hidden_layers, train_ground_truths[0]
+        # return weights, biases, num_hidden_layers, batch_train_labels[0]
     
     def execute_batches_in_parallel(self, data):
-        train_path, weights, biases, batch_size, num_batches, num_hidden_layers, learning_rate = data
+        train_imgs_batches, train_labels_batches, weights, biases, num_classes, num_hidden_layers, learning_rate = data
         with cf.ProcessPoolExecutor() as executor:
-            futures = [executor.submit(self.batch_trainer, train_path, weights, biases, batch_size, num_batches, num_hidden_layers, learning_rate) for num_batches in range (num_batches)]
+            futures = [executor.submit(self.batch_trainer, batch_train_imgs, batch_train_labels, weights, biases, num_classes, num_hidden_layers, learning_rate) for (batch_train_imgs, batch_train_labels) in zip(train_imgs_batches, train_labels_batches)]
             cf.wait(futures)
         results = [future.result() for future in cf.as_completed(futures)]
 
@@ -436,26 +446,30 @@ if __name__=="__main__":
  
     testing_path = 'test'
     train_path = 'train'
-    batch_size = 18
+    batch_size = 128
 
 
 
     weights, input_biases, num_hidden_layers, classes = neuron_ops.model_loader()
-    (batch_train_imgs,train_ground_truths) , (batch_test, test_label) = mnist.load_data()
+    (batch_train_imgs,batch_train_labels) , (batch_test, test_label) = mnist.load_data()
 
     #img = np.array([ImageOps.grayscale(Image.open('valid/kag_7786.png').resize((35,35)))])
-    img = batch_test[0]
-    img = np.array([img.reshape(-1)/255.0])
-    ground_truth = to_categorical(test_label)[0]
-    print(classes)
-    #print(img)
-    print(ground_truth)
-    #print(img[0])
+    # ind = 16
+    # img = batch_test[ind]
+    # img = np.array([img.reshape(-1)/255.0])
+    # ground_truth = to_categorical(test_label)[ind]
+    # print(classes)
+    # #print(img)
+    # print(ground_truth)
+    # #print(img[0])
 
-    all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(img[0], num_hidden_layers, len(classes), weights, input_biases)
-    print(output_layer_activations)
+    # all_outputs, output_layer_activations, weights, biases = neuron_ops.feed_forward(img[0], num_hidden_layers, len(classes), weights, input_biases)
+    # print(["{:.5f}".format(val) for val in output_layer_activations])
+    # print(output_layer_activations)
 
-    #neuron_ops.model_trainer(batch_size, 2)
+    # plt.imshow(batch_test[ind], cmap='gray')
+    # plt.show()
+    #neuron_ops.model_trainer(batch_size, 5)
     #execute_batches_in_parallel(fun, batch_size)
 
 
