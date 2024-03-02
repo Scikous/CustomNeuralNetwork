@@ -1,7 +1,5 @@
 import numpy as np
 from PIL import Image, ImageOps
-# from numba import jit, cuda
-# from numba.experimental import jitclass
 from timeit import default_timer as timer  
 import os
 #piss off tensorflow warnings, thanks very mucho
@@ -377,30 +375,40 @@ if __name__=="__main__":
     test_path = 'test'
     train_path = 'train'
     batch_size = 128
-    
-    train_imgs, train_labels = images_loader(train_path, num_imgs=60000, grayscale=False, load_from_file=True, save_to_file=False)
-    neuron_ops.model_trainer(train_imgs[:50000], train_labels[:50000], batch_size, 12)
-    test_imgs, test_labels = images_loader(test_path, num_imgs=9, grayscale=False, load_from_file=False, save_to_file=False)
 
     #MNIST handwritten digits dataset
     # (train_imgs,train_labels) , (test_imgs, test_labels) = mnist.load_data()
     # train_labels, test_labels = to_categorical(train_labels), to_categorical(test_labels)#for softmax classification
-    # train_imgs, train_labels, test_imgs, test_labels = np.asarray(train_imgs), np.asarray(train_labels), np.asarray(test_imgs), np.asarray(test_labels)
+    # train_imgs, train_labels, test_imgs, test_labels = cp.asarray(train_imgs), cp.asarray(train_labels), cp.asarray(test_imgs), cp.asarray(test_labels)
+    
+    #loading in custom training examples
+    train_imgs, train_labels = images_loader(train_path, num_imgs=60000, grayscale=False, load_from_file=True, save_to_file=False)
 
+    #model training
+    neuron_ops.model_trainer(train_imgs[:50000], train_labels[:50000], batch_size, 12)
+
+    #loading in custom test examples
+    test_imgs, test_labels = images_loader(test_path, num_imgs=9, grayscale=False, load_from_file=False, save_to_file=False)
+
+    #loading trained model
     model = "model_checkpoint.json"
     weights, biases, num_hidden_layers, classes = neuron_ops.model_loader(model)
     
+    #testing accuracy of model
     test_acc = neuron_ops.model_tester(test_imgs, test_labels, weights, biases, num_hidden_layers, 3)
 
-    #visualization
+    #take single image from test and visualize it
     ind = 1
     reshape_to = (35,35,3)
     batch_test_imgs, batch_test_labels, _ = neuron_ops.batch_processor(test_imgs, test_labels, batch_size)
     test_img = batch_test_imgs[0][ind]
     _, all_activations, _, _ = neuron_ops.feed_forward(test_img, num_hidden_layers, 3, weights, biases)
-    print(type(all_activations[-1]), type(classes),  all_activations[-1].ravel().ndim)
+
+    #take np.array and change to 1D list, and round 4 decimal precision
     preds_to_list = all_activations[-1].ravel().tolist()
     preds_to_list = [round(pred, 4) for pred in preds_to_list]
+
+    #show results of predictions, their true values and the image
     print(f"Predicted values:  {dict(zip(classes, preds_to_list))} \nTrue values: {dict(zip(classes, batch_test_labels[0][ind].reshape(-1).ravel().tolist()))}")
     plt.imshow(np.asnumpy(test_img.reshape(reshape_to)), cmap='gray')
     plt.show()
