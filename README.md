@@ -4,6 +4,7 @@ Built based on the mathematics of neural networks, a simple network. This is the
 ## Features
 - Runs on the GPU (CUDA enabled only)
 - Works on both RGB and Grayscale images
+- Uses batches and runs concurrently
 - Works
 
 > [!CAUTION]
